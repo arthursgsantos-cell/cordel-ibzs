@@ -3,6 +3,7 @@
 // ═══════════════════════════════════════════════════════════════════
 
 const API = '';  // mesmo origem
+let todasBarracas = [];
 
 // ── Estado global ────────────────────────────────────────────────
 let estado = {
@@ -17,23 +18,28 @@ let estado = {
   clientePollTimer: null,
   caixaClienteId: null,
   pendingQrPayload: null,
+  // cardápio do cliente
+  clienteCarrinho: [],   // [{barraca_id, nome, preco, qty}]
+  clienteBarracaAtual: null,
+  pedidosPollTimer: null,
+  gerentePedidosTimer: null,
 };
 
 const CODIGOS = { gerente: '2024', caixa: '5678', admin: '9999' };
 
-// ── Produtos por barraca ─────────────────────────────────────────
+// ── PRODutos por barraca (cardápio oficial do evento) ──────────────
 const PRODUTOS = {
-  'Pamonha Assada':         [{ nome:'Pamonha simples', preco:5 }, { nome:'Pamonha com queijo', preco:6 }, { nome:'Pamonha doce', preco:5 }],
-  'Bolo com Café':          [{ nome:'Bolo de milho', preco:5 }, { nome:'Bolo de fubá', preco:5 }, { nome:'Café', preco:3 }, { nome:'Kit bolo+café', preco:7 }],
-  'Lanche no Pote':         [{ nome:'Lanche no pote P', preco:10 }, { nome:'Lanche no pote G', preco:14 }, { nome:'Lanche especial', preco:16 }],
-  'Cachorro-quente':        [{ nome:'Cachorro simples', preco:8 }, { nome:'Cachorro completo', preco:12 }, { nome:'Mini cachorro', preco:5 }],
-  'Milho, Cuscuz e Caldo':  [{ nome:'Milho na espiga', preco:5 }, { nome:'Cuscuz', preco:5 }, { nome:'Caldo de cana', preco:6 }, { nome:'Combo', preco:12 }],
-  'Açaí':                   [{ nome:'Açaí P (300ml)', preco:12 }, { nome:'Açaí M (500ml)', preco:16 }, { nome:'Açaí G (700ml)', preco:20 }],
-  'Bebidas':                [{ nome:'Água', preco:3 }, { nome:'Refrigerante lata', preco:6 }, { nome:'Suco natural', preco:7 }, { nome:'Limonada', preco:8 }],
-  'Salgados':               [{ nome:'Salgado (un.)', preco:4 }, { nome:'Combo 3 salgados', preco:10 }, { nome:'Combo 6 salgados', preco:18 }],
-  'Pipoca e Docinhos':      [{ nome:'Pipoca', preco:5 }, { nome:'Brigadeiro', preco:3 }, { nome:'Beijinho', preco:3 }, { nome:'Combo 5 doces', preco:12 }],
-  'Churrasco':              [{ nome:'Espetinho (un.)', preco:8 }, { nome:'Combo 2 espetos', preco:14 }, { nome:'Prato churrasquinho', preco:20 }],
-  'Cordelsinho (Pescaria/Camarim/Pula-pula)': [{ nome:'Pescaria (1x)', preco:5 }, { nome:'Camarim (1x)', preco:5 }, { nome:'Pula-pula (1x)', preco:5 }, { nome:'Combo 3 atividades', preco:12 }],
+  'Pamonha Assada':          [{ nome:'Pamonha assada', preco:3 }],
+  'Bolo com Café':           [{ nome:'Bolo de milho', preco:5 }, { nome:'Bolo de fubá', preco:5 }, { nome:'Bolo caseiro', preco:6 }, { nome:'Café', preco:3 }, { nome:'Kit bolo + café', preco:7 }],
+  'Lanche no Pote':          [{ nome:'Canjica', preco:5 }, { nome:'Escondidinho', preco:6 }, { nome:'Arroz doce', preco:5 }],
+  'Cachorro-quente':         [{ nome:'Cachorro-quente', preco:6 }],
+  'Milho, Cuscuz e Caldo':   [{ nome:'Milho', preco:4 }, { nome:'Cuscuz', preco:4 }, { nome:'Caldo de macaxeira', preco:6 }, { nome:'Caldo verde', preco:6 }],
+  'Açaí':                    [{ nome:'Açaí P (300ml)', preco:12 }, { nome:'Açaí M (500ml)', preco:16 }, { nome:'Açaí G (700ml)', preco:20 }, { nome:'Açaí com granola', preco:18 }],
+  'Bebidas':                 [{ nome:'Água', preco:3 }, { nome:'Água de coco (300mL)', preco:5 }, { nome:'Coca-Cola (350mL)', preco:5 }, { nome:'Coca-Cola Zero (350mL)', preco:5 }, { nome:'Guaraná (350mL)', preco:5 }, { nome:'Fanta Laranja (350mL)', preco:5 }, { nome:'Sprite (350mL)', preco:5 }, { nome:'Schweppes Citrus (350mL)', preco:5 }],
+  'Salgados':                [{ nome:'Salgado (un.)', preco:4 }, { nome:'Combo 3 salgados', preco:10 }, { nome:'Combo 6 salgados', preco:18 }, { nome:'Coxinha', preco:5 }],
+  'Pipoca e Docinhos':       [{ nome:'Pipoca', preco:5 }, { nome:'Brigadeiro', preco:3 }, { nome:'Beijinho', preco:3 }, { nome:'Combo 5 doces', preco:12 }, { nome:'Pipoca + Brigadeiro', preco:7 }],
+  'Churrasco':               [{ nome:'🌶️ Tradicional — Carne', preco:8 }, { nome:'🌶️ Tradicional — Frango', preco:8 }, { nome:'🌶️ Tradicional — Calabresa', preco:8 }, { nome:'🌶️ Tradicional — Queijo coalho', preco:8 }, { nome:'🌶️ Tradicional — Coração', preco:8 }, { nome:'🌶️ Tradicional — Pão de alho', preco:8 }, { nome:'🌶️ Tradicional — Misto', preco:8 }, { nome:'⭐ Especial — Alcatra suína', preco:12 }, { nome:'⭐ Especial — Medalhão de carne', preco:12 }, { nome:'⭐ Especial — Medalhão de frango', preco:12 }, { nome:'⭐ Especial — Queijo com mel', preco:12 }, { nome:'🍓 Sobremesa — Romeu e Julieta', preco:8 }],
+  'Cordelsinho (Pescaria/Camarim/Pula-pula)': [{ nome:'Pescaria (1x)', preco:5 }, { nome:'Camarim (1x)', preco:5 }, { nome:'Pula-pula (1x)', preco:5 }, { nome:'Combo 3 atividades', preco:12 }, { nome:'Pula-pula livre', preco:15 }],
 };
 
 // ═══════════════════════════════════════════════════════════════════
@@ -71,12 +77,7 @@ function restaurarSessao() {
     mostrarTela('screen-' + estado.perfil);
 
     if (estado.perfil === 'gerente') {
-      iniciarGerente().then(() => {
-        if (estado.barracaId) {
-          document.getElementById('gerente-barraca-sel').value = estado.barracaId;
-          selecionarBarraca();
-        }
-      });
+      iniciarGerente(); // já lida com barracaId salvo internamente
     } else if (estado.perfil === 'caixa') {
       iniciarCaixa();
     } else if (estado.perfil === 'cliente') {
@@ -112,7 +113,7 @@ function renderLogo(containerId, tamanho) {
 
 function renderLogoTodas() {
   renderLogo('login-logo', 'grande');
-  ['gerente-logo-header','caixa-logo-header','cliente-logo-header','admin-logo-header'].forEach(id => renderLogo(id, 'pequeno'));
+  ['gerente-logo-header','caixa-logo-header','cliente-logo-header','admin-logo-header','criar-pin-logo'].forEach(id => renderLogo(id, 'pequeno'));
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -120,8 +121,14 @@ function renderLogoTodas() {
 // ═══════════════════════════════════════════════════════════════════
 function atualizarFormLogin() {
   const perfil = document.getElementById('login-perfil').value;
-  const wrap = document.getElementById('login-codigo-wrap');
-  wrap.style.display = perfil === 'cliente' ? 'none' : 'block';
+  document.getElementById('login-codigo-wrap').style.display = perfil === 'cliente' ? 'none' : 'block';
+  document.getElementById('login-pin-wrap').style.display = 'none';
+}
+
+function mostrarTela(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  const el = document.getElementById(id);
+  if (el) el.classList.add('active');
 }
 
 async function fazerLogin() {
@@ -133,34 +140,143 @@ async function fazerLogin() {
 
   if (perfil !== 'cliente') {
     if (!codigo) { toast('Digite o código!', 'error'); return; }
+
+    // Gerente: autenticação por código de barraca (servidor)
+    if (perfil === 'gerente') {
+      const res = await api('/api/auth/gerente', 'POST', { codigo });
+      if (!res.ok) { toast(res.error || 'Código inválido!', 'error'); return; }
+      estado.perfil = 'gerente';
+      estado.barracaId = res.barraca.id;
+      estado.gerenteBarraca = res.barraca;
+      mostrarTela('screen-gerente');
+      salvarSessao();
+      await iniciarGerenteComBarraca(res.barraca);
+      return;
+    }
+
+    // Caixa e Admin: código fixo do sistema
     if (codigo !== CODIGOS[perfil]) { toast('Código incorreto!', 'error'); return; }
+    estado.perfil = perfil;
+    mostrarTela('screen-' + perfil);
+    salvarSessao();
+    if (perfil === 'caixa')   iniciarCaixa();
+    else if (perfil === 'admin')   iniciarAdmin();
+    return;
   }
 
-  if (perfil === 'cliente') {
-    const clientes = await api('/api/clientes?nome=' + encodeURIComponent(nome));
-    if (!Array.isArray(clientes)) { toast('Servidor indisponível. Tente novamente.', 'error'); return; }
-    let cliente = clientes.find(c => c.nome.toLowerCase() === nome.toLowerCase());
-    if (!cliente) {
-      cliente = await api('/api/clientes', 'POST', { nome });
-      if (!cliente.id) {
-        toast(cliente.error || 'Erro ao cadastrar. Tente novamente.', 'error');
-        return;
-      }
-      toast('Bem-vindo(a), ' + cliente.nome + '! Código: ' + cliente.codigo, 'success');
-    }
+  // CLIENTE: buscar cliente existente
+  const clientes = await api('/api/clientes?nome=' + encodeURIComponent(nome));
+  if (!Array.isArray(clientes)) { toast('Servidor indisponível. Tente novamente.', 'error'); return; }
+  const cliente = clientes.find(c => c.nome.toLowerCase() === nome.toLowerCase());
+
+  if (!cliente) {
+    // Cliente novo → vai para tela criar PIN
+    window._novoClienteNome = nome;
+    document.getElementById('criar-pin-nome').value = nome;
+    mostrarTela('screen-criar-pin');
+    return;
+  }
+
+  if (!cliente.pin_hash) {
+    // Cliente sem PIN → vai para criar PIN
+    window._clienteExistenteId = cliente.id;
+    window._clienteExistenteCodigo = cliente.codigo;
+    document.getElementById('criar-pin-nome').value = nome;
+    document.getElementById('criar-pin-nome').readOnly = true;
+    mostrarTela('screen-criar-pin');
+    return;
+  }
+
+  // Cliente com PIN → mostra campo de senha
+  document.getElementById('login-pin-wrap').style.display = 'block';
+  document.getElementById('login-pin').dataset.clienteId = cliente.id;
+  toast('Digite sua senha de 4 dígitos', '');
+}
+
+async function fazerLoginComPin() {
+  const nome = document.getElementById('login-nome').value.trim();
+  const pin  = document.getElementById('login-pin').value.trim();
+
+  if (!pin || pin.length !== 4) { toast('Digite os 4 dígitos!', 'error'); return; }
+
+  const res = await api('/api/clientes/login', 'POST', { nome, pin });
+  if (res.error === 'sem_pin') {
+    document.getElementById('login-pin-wrap').style.display = 'none';
+    document.getElementById('login-pin').value = '';
+    toast('Configure sua senha primeiro', 'error');
+    return;
+  }
+  if (res.error) { toast(res.error, 'error'); return; }
+
+  estado.perfil = 'cliente';
+  estado.clienteId   = res.id;
+  estado.clienteNome = res.nome;
+  document.getElementById('cliente-nome-header').textContent = res.nome;
+  document.getElementById('login-pin').value = '';
+  document.getElementById('login-pin-wrap').style.display = 'none';
+  mostrarTela('screen-cliente');
+  salvarSessao();
+  iniciarCliente();
+}
+
+async function confirmarCriarPin() {
+  const nome    = document.getElementById('criar-pin-nome').value.trim();
+  const pin     = document.getElementById('criar-pin-senha').value.trim();
+  const confirma = document.getElementById('criar-pin-confirma').value.trim();
+
+  if (!nome) { toast('Digite seu nome!', 'error'); return; }
+  if (!pin || pin.length !== 4 || !/^\d+$/.test(pin)) { toast('Senha deve ter 4 dígitos numéricos!', 'error'); return; }
+  if (pin !== confirma) { toast('As senhas não coincidem!', 'error'); return; }
+
+  // já existia mas sem PIN
+  if (window._clienteExistenteId) {
+    const res = await api('/api/clientes/' + window._clienteExistenteId, 'PUT', { pin });
+    if (!res.id) { toast(res.error || 'Erro!', 'error'); return; }
+    estado.clienteId   = res.id;
+    estado.clienteNome = res.nome;
+    toast('Conta criada! Anote seu código: ' + res.codigo, 'success');
+  } else {
+    // novo cliente
+    const cliente = await api('/api/clientes', 'POST', { nome, pin });
+    if (!cliente.id) { toast(cliente.error || 'Erro ao criar conta!', 'error'); return; }
     estado.clienteId   = cliente.id;
     estado.clienteNome = cliente.nome;
-    document.getElementById('cliente-nome-header').textContent = cliente.nome;
+    toast('Conta criada! Código: ' + cliente.codigo + ' — anote!', 'success');
   }
 
-  estado.perfil = perfil;
-  mostrarTela('screen-' + perfil);
+  window._clienteExistenteId = null;
+  window._novoClienteNome = null;
+  document.getElementById('criar-pin-nome').readOnly = false;
+  document.getElementById('criar-pin-senha').value = '';
+  document.getElementById('criar-pin-confirma').value = '';
+  estado.perfil = 'cliente';
+  mostrarTela('screen-cliente');
+  document.getElementById('cliente-nome-header').textContent = estado.clienteNome;
   salvarSessao();
+  iniciarCliente();
+}
 
-  if (perfil === 'gerente')      iniciarGerente();
-  else if (perfil === 'caixa')   iniciarCaixa();
-  else if (perfil === 'cliente') iniciarCliente();
-  else if (perfil === 'admin')   iniciarAdmin();
+function voltarLogin() {
+  document.getElementById('criar-pin-nome').readOnly = false;
+  document.getElementById('criar-pin-senha').value = '';
+  document.getElementById('criar-pin-confirma').value = '';
+  mostrarTela('screen-login');
+}
+
+function mostrarRecuperarPin() {
+  document.getElementById('recuperar-codigo').value = '';
+  document.getElementById('recuperar-pin-msg').textContent = '';
+  document.getElementById('modal-esqueci-pin').classList.remove('hidden');
+}
+
+function fecharModalRecuperarPin() {
+  document.getElementById('modal-esqueci-pin').classList.add('hidden');
+}
+
+function solicitarRecuperacaoPin() {
+  // avisa para procurar o admin
+  document.getElementById('recuperar-pin-msg').innerHTML =
+    '<span style="color:#E8458C;"> peça ao admin para redefinir sua senha na aba Clientes.</span>';
 }
 
 function irAdmin(e) {
@@ -187,9 +303,16 @@ function confirmarAdmin() {
 function logout() {
   clearPolls();
   if (estado.scanner) { try { estado.scanner.stop(); } catch {} estado.scanner = null; }
-  estado = { perfil:null, clienteId:null, clienteNome:null, barracaId:null, carrinho:[], qrAtualId:null, scanner:null, qrPollTimer:null, clientePollTimer:null, caixaClienteId:null, pendingQrPayload:null };
+  estado = { perfil:null, clienteId:null, clienteNome:null, barracaId:null, carrinho:[], qrAtualId:null, scanner:null, qrPollTimer:null, clientePollTimer:null, caixaClienteId:null, pendingQrPayload:null, clienteCarrinho:[], clienteBarracaAtual:null, pedidosPollTimer:null, gerentePedidosTimer:null, _clienteProdutosEstoque:{} };
   document.getElementById('login-nome').value = '';
   document.getElementById('login-codigo').value = '';
+  document.getElementById('login-pin').value = '';
+  document.getElementById('login-pin-wrap').style.display = 'none';
+  document.getElementById('criar-pin-nome').readOnly = false;
+  document.getElementById('criar-pin-senha').value = '';
+  document.getElementById('criar-pin-confirma').value = '';
+  window._clienteExistenteId = null;
+  window._novoClienteNome = null;
   mostrarTela('screen-login');
   limparSessao();
 }
@@ -198,24 +321,159 @@ function logout() {
 //  GERENTE
 // ═══════════════════════════════════════════════════════════════════
 async function iniciarGerente() {
+  // Compatibilidade com sessão salva (restaura pelo barracaId)
+  if (estado.barracaId) {
+    const b = await api('/api/barracas/' + estado.barracaId);
+    if (b && b.id) { await iniciarGerenteComBarraca(b); return; }
+  }
+  // Fallback: seletor manual (não deveria acontecer no novo fluxo)
   const barracas = await api('/api/barracas');
   const sel = document.getElementById('gerente-barraca-sel');
   sel.innerHTML = '<option value="">Selecione a barraca...</option>';
-  barracas.forEach(b => {
+  if (Array.isArray(barracas)) barracas.forEach(b => {
     sel.innerHTML += `<option value="${b.id}">${b.emoji} ${b.nome}</option>`;
   });
 }
 
-async function selecionarBarraca() {
+async function iniciarGerenteComBarraca(barraca) {
+  estado.barracaId = barraca.id;
+  // Preenche o seletor (caso esteja visível) e esconde ele
   const sel = document.getElementById('gerente-barraca-sel');
-  estado.barracaId = sel.value;
-  if (!estado.barracaId) { document.getElementById('gerente-painel').style.display='none'; return; }
+  sel.innerHTML = `<option value="${barraca.id}" selected>${barraca.emoji} ${barraca.nome}</option>`;
+  document.getElementById('gerente-sel-barraca').style.display = 'none';
   document.getElementById('gerente-painel').style.display = 'block';
-  document.getElementById('gerente-barraca-titulo').textContent = sel.options[sel.selectedIndex].text;
+  document.getElementById('gerente-barraca-titulo').textContent = `${barraca.emoji} ${barraca.nome}`;
+  document.getElementById('gerente-barraca-nome').textContent = `${barraca.emoji} ${barraca.nome}`;
+  // Preenche campos de edição
+  document.getElementById('gerente-edit-emoji').value = barraca.emoji || '';
+  document.getElementById('gerente-edit-nome').value = barraca.nome || '';
   estado.carrinho = [];
   renderCarrinho();
-  await renderProdutos(estado.barracaId);
+  await renderProdutos(barraca.id);
+  gerenteCarregarPedidos();
+  if (estado.gerentePedidosTimer) clearInterval(estado.gerentePedidosTimer);
+  if (Notification.permission === 'default') Notification.requestPermission();
+  estado.gerentePedidosTimer = setInterval(() => { gerenteCarregarPedidos(); }, 6000);
   salvarSessao();
+  setTimeout(restaurarTabGerente, 0);
+}
+
+async function selecionarBarraca() {
+  // Fallback manual — no novo fluxo o gerente entra direto pelo código
+  const sel = document.getElementById('gerente-barraca-sel');
+  if (!sel.value) { document.getElementById('gerente-painel').style.display='none'; return; }
+  const info = await api('/api/barracas/' + sel.value);
+  if (info && info.id) await iniciarGerenteComBarraca(info);
+}
+
+// ── GERENTE: EDITAR BARRACA ────────────────────────────────────
+async function salvarInfoBarraca() {
+  const emoji = document.getElementById('gerente-edit-emoji').value.trim();
+  const nome = document.getElementById('gerente-edit-nome').value.trim();
+  if (!nome) { toast('Nome obrigatório!', 'error'); return; }
+  const res = await api('/api/barracas/' + estado.barracaId, 'PUT', { nome, emoji });
+  if (res.id) {
+    toast('Barraca atualizada!', 'success');
+    // atualiza título e seletor
+    document.getElementById('gerente-barraca-titulo').textContent = (emoji || '🏪') + ' ' + nome;
+    document.getElementById('gerente-barraca-nome').textContent = (emoji || '🏪') + ' ' + nome;
+    const sel = document.getElementById('gerente-barraca-sel');
+    sel.options[sel.selectedIndex].text = (emoji || '🏪') + ' ' + nome;
+    document.getElementById('gerente-edit-emoji').value = emoji;
+    document.getElementById('gerente-edit-nome').value = nome;
+  } else { toast(res.error || 'Erro!', 'error'); }
+}
+
+// ── GERENTE: GERENCIAR PRODUTOS ────────────────────────────────
+const _draftKey = id => 'draft_prod_' + id;
+const _draftTimers = {};
+
+function _salvarRascunho(id) {
+  const nome    = document.getElementById('ger-prod-nome-'    + id)?.value;
+  const preco   = document.getElementById('ger-prod-preco-'   + id)?.value;
+  const estoque = document.getElementById('ger-prod-estoque-' + id)?.value;
+  if (nome !== undefined) localStorage.setItem(_draftKey(id), JSON.stringify({ nome, preco, estoque }));
+  _mostrarIndicadorRascunho(id, true);
+}
+
+function _agendarRascunho(id) {
+  clearTimeout(_draftTimers[id]);
+  _draftTimers[id] = setTimeout(() => _salvarRascunho(id), 600);
+}
+
+function _limparRascunho(id) {
+  localStorage.removeItem(_draftKey(id));
+  _mostrarIndicadorRascunho(id, false);
+}
+
+function _mostrarIndicadorRascunho(id, tem) {
+  const el = document.getElementById('ger-draft-' + id);
+  if (el) { el.style.display = tem ? 'inline' : 'none'; }
+}
+
+async function gerenteCarregarProdutos() {
+  if (!estado.barracaId) return;
+  const produtos = await api('/api/barracas/' + estado.barracaId + '/produtos');
+  const lista = Array.isArray(produtos) ? produtos : [];
+  const cont = document.getElementById('gerente-produtos-lista');
+  if (!lista.length) {
+    cont.innerHTML = '<p style="color:#3A6EC8;text-align:center;padding:12px;">Nenhum produto cadastrado</p>';
+    return;
+  }
+  cont.innerHTML = lista.map(p => {
+    const draft = (() => { try { return JSON.parse(localStorage.getItem(_draftKey(p.id)) || 'null'); } catch { return null; } })();
+    const nome    = draft?.nome    ?? p.nome;
+    const preco   = draft?.preco   ?? p.preco;
+    const estoque = draft?.estoque ?? (p.estoque ?? -1);
+    const temDraft = !!draft;
+    return `
+    <div class="produto-linha">
+      <div style="position:relative;flex:2;min-width:120px;">
+        <input type="text" id="ger-prod-nome-${p.id}" value="${nome}" class="form-control${temDraft ? ' input-rascunho' : ''}" style="font-size:0.95rem;width:100%;"
+          oninput="_agendarRascunho('${p.id}')" />
+        <span id="ger-draft-${p.id}" title="Rascunho não salvo" style="display:${temDraft?'inline':'none'};position:absolute;right:8px;top:50%;transform:translateY(-50%);font-size:0.75rem;color:#E8458C;font-weight:700;">●</span>
+      </div>
+      <input type="number" id="ger-prod-preco-${p.id}" value="${preco}" class="form-control${temDraft ? ' input-rascunho' : ''}" style="flex:1;min-width:80px;font-size:0.95rem;" step="0.5" min="1"
+        oninput="_agendarRascunho('${p.id}')" />
+      <input type="number" id="ger-prod-estoque-${p.id}" value="${estoque}" class="form-control${temDraft ? ' input-rascunho' : ''}" style="flex:1;min-width:70px;font-size:0.95rem;" placeholder="-1" title="Estoque (-1 = ilimitado)"
+        oninput="_agendarRascunho('${p.id}')" />
+      <button class="btn btn-primary btn-sm" style="width:auto;padding:8px 12px;" onclick="gerenteSalvarProduto('${p.id}')">💾</button>
+      <button class="btn btn-danger btn-sm" style="width:auto;padding:8px 12px;" onclick="gerenteDeletarProduto('${p.id}')">🗑️</button>
+    </div>
+  `}).join('');
+}
+
+async function gerenteAdicionarProduto() {
+  const nome = document.getElementById('gerente-novo-produto-nome').value.trim();
+  const preco = parseFloat(document.getElementById('gerente-novo-produto-preco').value);
+  const estoque = parseInt(document.getElementById('gerente-novo-produto-estoque').value) || -1;
+  if (!nome) { toast('Nome obrigatório!', 'error'); return; }
+  if (!preco || preco <= 0) { toast('Preço inválido!', 'error'); return; }
+  const res = await api('/api/barracas/' + estado.barracaId + '/produtos', 'POST', { nome, preco, estoque });
+  if (res.id) {
+    toast('Produto adicionado!', 'success');
+    document.getElementById('gerente-novo-produto-nome').value = '';
+    document.getElementById('gerente-novo-produto-preco').value = '';
+    document.getElementById('gerente-novo-produto-estoque').value = '';
+    await gerenteCarregarProdutos();
+  } else { toast(res.error || 'Erro!', 'error'); }
+}
+
+async function gerenteSalvarProduto(id) {
+  const nome = document.getElementById('ger-prod-nome-' + id).value.trim();
+  const preco = parseFloat(document.getElementById('ger-prod-preco-' + id).value);
+  const estoque = parseInt(document.getElementById('ger-prod-estoque-' + id).value);
+  if (!nome || !preco) { toast('Dados inválidos!', 'error'); return; }
+  const res = await api('/api/produtos/' + id, 'PUT', { nome, preco, estoque, barraca_id: estado.barracaId });
+  if (res.id) { _limparRascunho(id); toast('Produto atualizado!', 'success'); await gerenteCarregarProdutos(); }
+  else { toast(res.error || 'Erro!', 'error'); }
+}
+
+async function gerenteDeletarProduto(id) {
+  if (!confirm('Remover este produto?')) return;
+  const res = await api('/api/produtos/' + id, 'DELETE');
+  if (res.ok) { _limparRascunho(id); toast('Produto removido!', 'success'); gerenteCarregarProdutos(); }
+  else { toast(res.error || 'Erro!', 'error'); }
 }
 
 async function renderProdutos(barracaId) {
@@ -228,24 +486,44 @@ async function renderProdutos(barracaId) {
     estado.carrinho = [];
     return;
   }
-  grid.innerHTML = lista.map((p, i) => `
-    <div class="produto-card">
-      <div class="produto-nome">${p.nome}</div>
-      <div class="produto-preco">${p.preco} 🌟</div>
-      <div class="produto-qty-row">
-        <button class="qty-btn" onclick="alterarQty(${i},-1)">−</button>
-        <span class="qty-num" id="qty-${i}">0</span>
-        <button class="qty-btn" onclick="alterarQty(${i},1)">+</button>
+  grid.innerHTML = lista.map((p, i) => {
+    const semEstoque = p.estoque !== undefined && p.estoque !== null && p.estoque !== -1 && p.estoque <= 0;
+    const estoqueLabel = p.estoque === -1 || p.estoque === null || p.estoque === undefined
+      ? '' : semEstoque
+        ? `<div class="estoque-badge estoque-zero">Esgotado</div>`
+        : `<div class="estoque-badge estoque-ok">${p.estoque} em estoque</div>`;
+    return `
+      <div class="produto-card${semEstoque ? ' produto-esgotado' : ''}">
+        <div class="produto-nome">${p.nome}</div>
+        <div class="produto-preco">${p.preco} 🌟</div>
+        ${estoqueLabel}
+        <div class="produto-qty-row">
+          <button class="qty-btn" onclick="alterarQty(${i},-1)" ${semEstoque ? 'disabled' : ''}>−</button>
+          <span class="qty-num" id="qty-${i}">0</span>
+          <button class="qty-btn" id="qty-btn-mais-${i}" onclick="alterarQty(${i},1)" ${semEstoque ? 'disabled' : ''}>+</button>
+        </div>
       </div>
-    </div>
-  `).join('');
-  estado.carrinho = lista.map(p => ({ id: p.id, nome: p.nome, preco: parseFloat(p.preco), qty: 0 }));
+    `;
+  }).join('');
+  estado.carrinho = lista.map(p => ({ id: p.id, nome: p.nome, preco: parseFloat(p.preco), qty: 0, estoque: p.estoque ?? -1 }));
 }
 
 function alterarQty(idx, delta) {
-  if (!estado.carrinho[idx]) return;
-  estado.carrinho[idx].qty = Math.max(0, (estado.carrinho[idx].qty || 0) + delta);
-  document.getElementById('qty-' + idx).textContent = estado.carrinho[idx].qty;
+  const item = estado.carrinho[idx];
+  if (!item) return;
+  const novaQty = Math.max(0, (item.qty || 0) + delta);
+  // Bloqueia se estoque definido e qty tentaria ultrapassar
+  if (delta > 0 && item.estoque !== -1 && item.estoque !== null && novaQty > item.estoque) {
+    toast(`Estoque insuficiente! Apenas ${item.estoque} disponível.`, 'error');
+    return;
+  }
+  item.qty = novaQty;
+  document.getElementById('qty-' + idx).textContent = item.qty;
+  // Desabilita botão + se atingiu o limite
+  const btnMais = document.getElementById('qty-btn-mais-' + idx);
+  if (btnMais && item.estoque !== -1 && item.estoque !== null) {
+    btnMais.disabled = item.qty >= item.estoque;
+  }
   renderCarrinho();
 }
 
@@ -275,7 +553,7 @@ async function gerarQR() {
   const res = await api('/api/qr', 'POST', {
     barraca_id: estado.barracaId,
     valor: total,
-    itens: itens.map(i => ({ nome: i.nome, preco: i.preco, qty: i.qty }))
+    itens: itens.map(i => ({ id: i.id, nome: i.nome, preco: i.preco, qty: i.qty }))
   });
   if (!res.id) { toast('Erro ao gerar QR!', 'error'); return; }
 
@@ -311,11 +589,146 @@ function fecharModalQR() {
 }
 
 function abrirTab(ev, tab) {
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  document.querySelectorAll('#screen-gerente .tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('#screen-gerente .tab-content').forEach(c => c.classList.remove('active'));
   document.getElementById('tab-' + tab).classList.add('active');
   ev.currentTarget.classList.add('active');
+  localStorage.setItem('tab_gerente', tab);
   if (tab === 'relatorio') carregarRelatorioBarraca();
+  if (tab === 'gerenciar') gerenteCarregarProdutos();
+  if (tab === 'pedidos') gerenteCarregarPedidos();
+  if (tab === 'historico') gerenteCarregarHistorico();
+}
+
+function restaurarTabGerente() {
+  const tab = localStorage.getItem('tab_gerente') || 'vender';
+  const btn = document.querySelector(`#screen-gerente .tab-btn[onclick*="'${tab}'"]`);
+  if (btn) btn.click();
+}
+
+let _ultimosPedidosIds = new Set();
+
+async function gerenteCarregarPedidos() {
+  if (!estado.barracaId) return;
+  const pedidos = await api('/api/pedidos/pendentes/' + estado.barracaId);
+  const cont = document.getElementById('gerente-pedidos-lista');
+
+  // ── Badge na aba ──────────────────────────────────────────────
+  const badge = document.getElementById('badge-pedidos');
+  if (badge) {
+    if (Array.isArray(pedidos) && pedidos.length > 0) {
+      badge.textContent = pedidos.length;
+      badge.style.display = 'inline-block';
+    } else {
+      badge.style.display = 'none';
+    }
+  }
+
+  // ── Notificação de novo pedido ────────────────────────────────
+  if (Array.isArray(pedidos) && pedidos.length > 0) {
+    const novos = pedidos.filter(p => !_ultimosPedidosIds.has(p.id));
+    if (novos.length > 0 && _ultimosPedidosIds.size > 0) {
+      // Há pedidos que não existiam antes → notificar
+      novos.forEach(p => {
+        let itens = [];
+        try { itens = JSON.parse(p.itens || '[]'); } catch {}
+        const nomeCliente = p.clientes?.nome || 'Cliente';
+        const resumo = itens.map(i => `${i.qty}x ${i.nome}`).join(', ');
+        toast(`🔔 Novo pedido de ${nomeCliente}: ${resumo}`, 'success');
+        // Notificação do sistema se permitida
+        if (Notification.permission === 'granted') {
+          new Notification('🔔 Novo pedido!', { body: `${nomeCliente}: ${resumo}`, icon: '/favicon.ico' });
+        }
+      });
+    }
+    _ultimosPedidosIds = new Set(pedidos.map(p => p.id));
+  } else {
+    _ultimosPedidosIds = new Set();
+  }
+
+  if (!Array.isArray(pedidos) || !pedidos.length) {
+    cont.innerHTML = '<p style="color:#16a34a;text-align:center;padding:16px;">🎉 Nenhum pedido pendente! Aproveite!</p>';
+    return;
+  }
+  cont.innerHTML = '<div style="margin-bottom:8px;font-weight:700;color:#E8458C;font-size:1rem;">🕐 ' + pedidos.length + ' pedido(s) pendente(s)</div>' +
+    pedidos.map(p => {
+      let itens = [];
+      try { itens = JSON.parse(p.itens || '[]'); } catch {}
+      return `
+        <div class="pedido-card">
+          <div class="pedido-header">
+            <div>
+              <div style="font-weight:700;color:#1E3A6E;font-size:1rem;">${p.clientes ? p.clientes.nome : 'Cliente'}</div>
+              <div style="font-size:0.82rem;color:#3A6EC8;">${formatarHora(p.criado_em)} · ${itens.length} item(s)</div>
+            </div>
+            <div style="text-align:right;">
+              <div style="font-size:1.3rem;font-weight:700;color:#C8A020;">${p.valor_total ?? p.valor ?? '?'} 🌟</div>
+            </div>
+          </div>
+          <div class="pedido-itens">${itens.map(i => `<span class="pedido-item-tag">${i.qty}x ${i.nome}</span>`).join('')}</div>
+          <div style="margin-top:10px;font-size:0.85rem;color:#16a34a;font-weight:600;">💰 <span style="color:#1E3A6E;">Valor já debitado do cliente</span></div>
+          <div style="display:flex;gap:8px;margin-top:12px;">
+            <button class="btn btn-success btn-sm" style="flex:2;" onclick="gerenteConfirmarPedido('${p.id}')">✅ Confirmar Entrega</button>
+            <button class="btn btn-danger btn-sm" style="flex:1;" onclick="gerenteCancelarPedido('${p.id}','${(p.clientes?.nome||'').replace(/'/g,"\\'")}')">✖ Cancelar</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+}
+
+async function gerenteCancelarPedido(pedidoId, nomeCliente) {
+  const motivo = prompt(`Cancelar pedido de ${nomeCliente}?\n\nMotivo (opcional):`);
+  if (motivo === null) return; // clicou Cancelar no prompt
+  const res = await api('/api/pedidos/' + pedidoId + '/cancelar', 'POST', { motivo });
+  if (res.ok) {
+    toast(`❌ Pedido cancelado. Alegrias estornadas para ${nomeCliente}.`, 'success');
+    gerenteCarregarPedidos();
+  } else {
+    toast(res.error || 'Erro ao cancelar pedido!', 'error');
+  }
+}
+
+async function gerenteConfirmarPedido(pedidoId) {
+  const res = await api('/api/pedidos/' + pedidoId + '/confirmar', 'POST');
+  if (res.ok) {
+    toast('✅ Pedido confirmado! O cliente pode retirar.', 'success');
+    gerenteCarregarPedidos();
+    carregarRelatorioBarraca();
+  } else {
+    toast(res.error || 'Erro ao confirmar pedido!', 'error');
+  }
+}
+
+async function gerenteCarregarHistorico() {
+  if (!estado.barracaId) return;
+  const cont = document.getElementById('gerente-historico-lista');
+  cont.innerHTML = '<p style="color:#a0522d;text-align:center;">Carregando...</p>';
+  const pedidos = await api('/api/pedidos/historico/' + estado.barracaId);
+  if (!Array.isArray(pedidos) || !pedidos.length) {
+    cont.innerHTML = '<p style="color:#a0522d;text-align:center;">Nenhum pedido ainda</p>';
+    return;
+  }
+  const statusLabel = { pendente: '🕐 Aguardando', confirmado: '✅ Entregue', cancelado: '❌ Cancelado' };
+  const statusCor   = { pendente: '#E8458C', confirmado: '#16a34a' };
+  cont.innerHTML = pedidos.map(p => {
+    let itens = [];
+    try { itens = JSON.parse(p.itens || '[]'); } catch {}
+    const cor = statusCor[p.status] || '#3A6EC8';
+    return `
+      <div style="border-left:4px solid ${cor};padding:10px 12px;margin-bottom:8px;background:#fafbff;border-radius:0 8px 8px 0;">
+        <div style="display:flex;justify-content:space-between;align-items:start;">
+          <div>
+            <div style="font-weight:700;color:#1E3A6E;">${p.clientes?.nome || 'Cliente'}</div>
+            <div style="font-size:0.8rem;color:${cor};font-weight:600;">${statusLabel[p.status] || p.status}</div>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-weight:700;color:#C8A020;">${p.valor_total ?? '?'} 🌟</div>
+            <div style="font-size:0.75rem;color:#3A6EC8;">${formatarHora(p.criado_em)}</div>
+          </div>
+        </div>
+        <div style="margin-top:4px;font-size:0.83rem;color:#3A6EC8;">${itens.map(i => `${i.qty}x ${i.nome}`).join(' · ')}</div>
+      </div>`;
+  }).join('');
 }
 
 async function carregarRelatorioBarraca() {
@@ -512,16 +925,22 @@ async function cadastrarCliente() {
 function iniciarCliente() {
   carregarSaldoCliente();
   carregarHistoricoCliente();
+  clienteCarregarCardapio();
+  carregarPedidosCliente();
   estado.clientePollTimer = setInterval(() => {
     carregarSaldoCliente();
     carregarHistoricoCliente();
   }, 5000);
+  if (!estado.pedidosPollTimer) {
+    estado.pedidosPollTimer = setInterval(carregarPedidosCliente, 8000);
+  }
+  setTimeout(restaurarTabCliente, 0);
 }
 
 async function carregarSaldoCliente() {
   if (!estado.clienteId) return;
   const c = await api('/api/clientes/' + estado.clienteId);
-  if (c.saldo !== undefined) {
+  if (c && c.saldo !== undefined) {
     document.getElementById('cliente-saldo').textContent = c.saldo;
   }
 }
@@ -530,7 +949,10 @@ async function carregarHistoricoCliente() {
   if (!estado.clienteId) return;
   const tx = await api('/api/transacoes?cliente_id=' + estado.clienteId + '&tipo=venda&limit=20');
   const cont = document.getElementById('cliente-historico');
-  if (!tx.length) { cont.innerHTML = '<p style="color:#a0522d;text-align:center;">Nenhuma compra ainda</p>'; return; }
+  if (!Array.isArray(tx) || !tx.length) {
+    cont.innerHTML = '<p style="color:#a0522d;text-align:center;">Nenhuma compra ainda</p>';
+    return;
+  }
   cont.innerHTML = tx.map(t => `
     <div class="hist-item">
       <div class="hist-info">
@@ -540,6 +962,260 @@ async function carregarHistoricoCliente() {
       <div class="hist-valor">−${t.valor} 🌟</div>
     </div>
   `).join('');
+}
+
+// ── Cliente: Cardápio ─────────────────────────────────────────────
+async function clienteCarregarCardapio() {
+  const cardapio = await api('/api/cardapio');
+  const cont = document.getElementById('cliente-barracas-lista');
+  console.log('[CARDÁPIO] resposta:', JSON.stringify(cardapio).substring(0, 200));
+  if (!Array.isArray(cardapio) || !cardapio.length) {
+    cont.innerHTML = '<p style="color:#a0522d;text-align:center;">Nenhuma barraca disponível</p>';
+    return;
+  }
+  cont.innerHTML = cardapio.map(b => {
+    const temProdutos = b.produtos && b.produtos.length > 0;
+    return `
+      <div class="barraca-item" onclick="${temProdutos ? 'clienteAbrirBarraca(\'' + b.id + '\',\'' + b.nome.replace(/'/g, '\\\'') + '\',\'' + b.emoji + '\')' : ''}" style="${temProdutos ? 'cursor:pointer;' : 'opacity:0.5;'}">
+        <span style="font-size:1.8rem;">${b.emoji}</span>
+        <div style="flex:1;margin-left:10px;">
+          <div style="font-weight:700;color:#1E3A6E;font-size:1rem;">${b.nome}</div>
+          <div style="font-size:0.82rem;color:#3A6EC8;">${b.produtos ? b.produtos.length : 0} itens</div>
+        </div>
+        ${temProdutos ? '<span style="font-size:1.2rem;">→</span>' : '<span style="font-size:0.8rem;color:#9aaccc;">Sem produtos</span>'}
+      </div>
+    `;
+  }).join('');
+}
+
+function clienteAbrirBarraca(barracaId, nome, emoji) {
+  estado.clienteBarracaAtual = { id: barracaId, nome, emoji };
+  estado.clienteCarrinho = [];
+  document.getElementById('cliente-cardapio-emoji').textContent = emoji;
+  document.getElementById('cliente-cardapio-nome').textContent = nome;
+  document.getElementById('cliente-cardapio-barraca').style.display = 'block';
+  document.getElementById('cliente-barracas-lista').parentElement.style.display = 'none';
+  clienteCarregarProdutos(barracaId);
+}
+
+function clienteVoltarBarracas() {
+  estado.clienteBarracaAtual = null;
+  estado.clienteCarrinho = [];
+  document.getElementById('cliente-cardapio-barraca').style.display = 'none';
+  document.getElementById('cliente-barracas-lista').parentElement.style.display = 'block';
+}
+
+async function clienteCarregarProdutos(barracaId) {
+  const produtos = await api('/api/barracas/' + barracaId + '/produtos');
+  const lista = Array.isArray(produtos) ? produtos : [];
+  const cont = document.getElementById('cliente-produtos-lista');
+  if (!lista.length) {
+    cont.innerHTML = '<p style="color:#a0522d;text-align:center;">Esta barraca ainda não tem produtos.</p>';
+    return;
+  }
+  // Guarda estoque por produto para validação no alterarQty
+  estado._clienteProdutosEstoque = {};
+  lista.forEach(p => { estado._clienteProdutosEstoque[p.nome + '_' + barracaId] = p.estoque ?? -1; });
+
+  cont.innerHTML = lista.map(p => {
+    const item = estado.clienteCarrinho.find(i => i.nome === p.nome && i.barraca_id === barracaId);
+    const qty = item ? item.qty : 0;
+    const semEstoque = p.estoque !== undefined && p.estoque !== null && p.estoque !== -1 && p.estoque <= 0;
+    const estoqueLabel = (p.estoque === -1 || p.estoque === null || p.estoque === undefined) ? ''
+      : semEstoque
+        ? `<div class="estoque-badge estoque-zero" style="margin-top:2px;">Esgotado</div>`
+        : `<div class="estoque-badge estoque-ok" style="margin-top:2px;">${p.estoque} disponíveis</div>`;
+    const nomeId = p.nome.replace(/\s/g,'_').replace(/[^a-zA-Z0-9_]/g,'');
+    return `
+      <div class="cliente-produto-item${semEstoque ? ' produto-esgotado' : ''}">
+        <div>
+          <div class="cliente-produto-nome">${p.nome}</div>
+          ${estoqueLabel}
+        </div>
+        <div class="cliente-produto-preco">${p.preco} 🌟</div>
+        <div class="cliente-produto-qty">
+          <button class="qty-btn" onclick="clienteAlterarQty('${p.nome.replace(/'/g,"\\'")}',${p.preco},-1,'${barracaId}','${p.id}')" ${semEstoque ? 'disabled' : ''}>−</button>
+          <span class="qty-num" id="cliente-qty-${nomeId}">${qty}</span>
+          <button class="qty-btn" id="cliente-qty-mais-${nomeId}" onclick="clienteAlterarQty('${p.nome.replace(/'/g,"\\'")}',${p.preco},1,'${barracaId}','${p.id}')" ${semEstoque ? 'disabled' : ''}>+</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function clienteAlterarQty(nome, preco, delta, barracaId, produtoId) {
+  let item = estado.clienteCarrinho.find(i => i.nome === nome && i.barraca_id === barracaId);
+  if (!item) {
+    item = { id: produtoId, barraca_id: barracaId, nome, preco: parseFloat(preco), qty: 0 };
+    estado.clienteCarrinho.push(item);
+  }
+  if (!item.id && produtoId) item.id = produtoId;
+  const novaQty = Math.max(0, item.qty + delta);
+  const estoque = (estado._clienteProdutosEstoque || {})[nome + '_' + barracaId] ?? -1;
+  if (delta > 0 && estoque !== -1 && novaQty > estoque) {
+    toast(`Apenas ${estoque} disponível!`, 'error');
+    return;
+  }
+  item.qty = novaQty;
+  const nomeId = nome.replace(/\s/g, '_').replace(/[^a-zA-Z0-9_]/g, '');
+  document.getElementById('cliente-qty-' + nomeId).textContent = item.qty;
+  const btnMais = document.getElementById('cliente-qty-mais-' + nomeId);
+  if (btnMais && estoque !== -1) btnMais.disabled = item.qty >= estoque;
+  clienteAtualizarCarrinho();
+}
+
+function clienteAtualizarCarrinho() {
+  const resumo = document.getElementById('cliente-carrinho-resumo');
+  const itens = estado.clienteCarrinho.filter(i => i.qty > 0);
+  if (!itens.length) {
+    resumo.style.display = 'none';
+    return;
+  }
+  resumo.style.display = 'block';
+  const total = itens.reduce((s, i) => s + i.preco * i.qty, 0);
+  document.getElementById('cliente-carrinho-itens').innerHTML = itens.map(i => `
+    <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #D0DCFF;font-size:0.95rem;">
+      <span>${i.qty}x ${i.nome}</span>
+      <span style="font-weight:700;color:#C8A020;">${i.preco * i.qty} 🌟</span>
+    </div>
+  `).join('');
+  document.getElementById('cliente-carrinho-total').textContent = `Total: ${total} Alegrias`;
+}
+
+async function clienteFazerPedido() {
+  const itens = estado.clienteCarrinho.filter(i => i.qty > 0);
+  if (!itens.length) { toast('Nenhum item no pedido!', 'error'); return; }
+  if (!estado.clienteBarracaAtual) { toast('Selecione uma barraca!', 'error'); return; }
+
+  const total = itens.reduce((s, i) => s + i.preco * i.qty, 0);
+  const saldo = parseInt(document.getElementById('cliente-saldo').textContent) || 0;
+  if (saldo < total) { toast(`Saldo insuficiente! Você tem ${saldo} 🌟 mas o pedido é ${total} 🌟`, 'error'); return; }
+
+  const res = await api('/api/pedidos', 'POST', {
+    cliente_id: estado.clienteId,
+    barraca_id: estado.clienteBarracaAtual.id,
+    itens: itens.map(i => ({ id: i.id, nome: i.nome, preco: i.preco, qty: i.qty }))
+  });
+
+  if (res.ok) {
+    document.getElementById('cliente-saldo').textContent = res.saldo;
+    estado.clienteCarrinho = [];
+    clienteAtualizarCarrinho();
+    clienteCarregarProdutos(estado.clienteBarracaAtual.id);
+    carregarPedidosCliente();
+    // Modal de confirmação
+    const b = estado.clienteBarracaAtual;
+    document.getElementById('modal-pedido-conf-barraca').textContent = `${b.emoji} ${b.nome}`;
+    document.getElementById('modal-pedido-conf-itens').textContent =
+      itens.map(i => `${i.qty}x ${i.nome}`).join(' · ') + ` — Total: ${total} 🌟`;
+    document.getElementById('modal-pedido-confirmado').classList.remove('hidden');
+  } else if (res.error === 'Saldo insuficiente') {
+    toast(`Saldo insuficiente! Você tem ${res.saldo} 🌟 mas o pedido é ${res.valor} 🌟`, 'error');
+  } else {
+    toast(res.error || 'Erro ao fazer pedido!', 'error');
+  }
+}
+
+function fecharModalPedidoConfirmado() {
+  document.getElementById('modal-pedido-confirmado').classList.add('hidden');
+}
+
+// ── Cliente: Abas ─────────────────────────────────────────────────
+function abrirTabCliente(ev, tab) {
+  document.querySelectorAll('#screen-cliente .tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('#screen-cliente .tab-content').forEach(c => c.classList.remove('active'));
+  const content = document.getElementById('cliente-tab-' + tab);
+  if (content) content.classList.add('active');
+  ev.currentTarget.classList.add('active');
+  localStorage.setItem('tab_cliente', tab);
+}
+
+function restaurarTabCliente() {
+  const tab = localStorage.getItem('tab_cliente') || 'cardapio';
+  const btn = document.querySelector(`#screen-cliente .tab-btn[onclick*="'${tab}'"]`);
+  if (btn) btn.click();
+}
+
+// ── Cliente: Pedidos ──────────────────────────────────────────────
+async function carregarPedidosCliente() {
+  if (!estado.clienteId) return;
+  const pedidos = await api('/api/pedidos/cliente/' + estado.clienteId);
+  const cont = document.getElementById('cliente-pedidos-lista');
+  const contHistorico = document.getElementById('cliente-historico');
+
+  if (!Array.isArray(pedidos) || !pedidos.length) {
+    cont.innerHTML = '<p style="color:#a0522d;text-align:center;">Nenhum pedido feito ainda</p>';
+    return;
+  }
+
+  const pendentes  = pedidos.filter(p => p.status === 'pendente');
+  const entregues  = pedidos.filter(p => p.status === 'confirmado');
+  const cancelados = pedidos.filter(p => p.status === 'cancelado');
+
+  if (!pendentes.length) {
+    cont.innerHTML = '<p style="color:#a0522d;text-align:center;">Nenhum pedido em andamento</p>';
+  } else {
+    cont.innerHTML = pendentes.slice(0, 15).map(p => {
+      let itens = [];
+      try { itens = JSON.parse(p.itens || '[]'); } catch {}
+      return `
+        <div class="pedido-card-cliente" style="border-left:5px solid #E8458C;">
+          <div style="display:flex;justify-content:space-between;align-items:start;">
+            <div>
+              <div style="font-weight:700;color:#1E3A6E;">${p.barracas ? p.barracas.emoji + ' ' + p.barracas.nome : '—'}</div>
+              <div style="font-size:0.85rem;color:#E8458C;font-weight:600;margin-top:2px;">🕐 Aguardando preparo...</div>
+            </div>
+            <div style="text-align:right;">
+              <div style="font-size:1.2rem;font-weight:700;color:#C8A020;">${p.valor_total ?? p.valor ?? '?'} 🌟</div>
+              <div style="font-size:0.78rem;color:#3A6EC8;">${formatarHora(p.criado_em)}</div>
+            </div>
+          </div>
+          <div style="margin-top:6px;font-size:0.88rem;color:#3A6EC8;">
+            ${itens.map(i => `${i.qty}x ${i.nome}`).join(' · ')}
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  const contEntregues = document.getElementById('cliente-pedidos-entregues');
+  if (contEntregues) {
+    const entreguesHtml = entregues.slice(0, 10).map(p => {
+      let itens = [];
+      try { itens = JSON.parse(p.itens || '[]'); } catch {}
+      return `
+        <div class="hist-item" style="border-left:4px solid #16a34a;padding-left:8px;">
+          <div class="hist-info">
+            <div class="hist-barraca">${p.barracas ? p.barracas.emoji + ' ' + p.barracas.nome : '—'}</div>
+            <div style="font-size:0.8rem;color:#16a34a;font-weight:600;">✅ Entregue · ${itens.map(i => `${i.qty}x ${i.nome}`).join(', ')}</div>
+            <div class="hist-hora">${formatarHora(p.criado_em)}</div>
+          </div>
+          <div class="hist-valor">−${p.valor_total ?? p.valor ?? '?'} 🌟</div>
+        </div>
+      `;
+    }).join('');
+
+    const canceladosHtml = cancelados.slice(0, 5).map(p => {
+      let itens = [];
+      try { itens = JSON.parse(p.itens || '[]'); } catch {}
+      // Motivo: da coluna dedicada ou embutido no primeiro item como _motivo
+      const motivoTexto = p.motivo_cancelamento || itens[0]?._motivo || '';
+      const motivo = motivoTexto ? ` · "${motivoTexto}"` : '';
+      return `
+        <div class="hist-item" style="border-left:4px solid #dc2626;padding-left:8px;opacity:0.75;">
+          <div class="hist-info">
+            <div class="hist-barraca">${p.barracas ? p.barracas.emoji + ' ' + p.barracas.nome : '—'}</div>
+            <div style="font-size:0.8rem;color:#dc2626;font-weight:600;">❌ Cancelado${motivo}</div>
+            <div style="font-size:0.75rem;color:#16a34a;font-weight:600;">↩ Alegrias estornadas</div>
+            <div class="hist-hora">${formatarHora(p.criado_em)}</div>
+          </div>
+          <div class="hist-valor" style="color:#dc2626;text-decoration:line-through;">${p.valor_total ?? p.valor ?? '?'} 🌟</div>
+        </div>
+      `;
+    }).join('');
+
+    contEntregues.innerHTML = canceladosHtml + entreguesHtml;
+  }
 }
 
 function abrirScanner() {
@@ -571,6 +1247,74 @@ function fecharScanner() {
     estado.scanner.stop().catch(() => {});
     estado.scanner = null;
   }
+}
+
+// ── QR Code do cliente ────────────────────────────────────────────
+async function mostrarMeuQR() {
+  if (!estado.clienteId) return;
+  const res = await api('/api/clientes/' + estado.clienteId + '/qr');
+  if (!res.qr) { toast('Erro ao gerar QR', 'error'); return; }
+  document.getElementById('meu-qr-img').src = res.qr;
+  document.getElementById('meu-qr-nome').textContent = estado.clienteNome || '';
+  document.getElementById('modal-meu-qr').classList.remove('hidden');
+}
+
+// ── Scanner QR de cliente (caixa) ─────────────────────────────────
+let _scannerCaixa = null;
+
+function abrirScannerCaixa() {
+  document.getElementById('reader-caixa').innerHTML = '';
+  document.getElementById('modal-scanner-cliente').classList.remove('hidden');
+  _scannerCaixa = new Html5Qrcode('reader-caixa');
+  _scannerCaixa.start(
+    { facingMode: 'environment' },
+    { fps: 10, qrbox: { width: 220, height: 220 } },
+    (decodedText) => {
+      try {
+        const payload = JSON.parse(decodedText);
+        if (payload.tipo === 'cliente' && payload.id) {
+          fecharScannerCaixa();
+          selecionarClienteCaixa(payload.id);
+          toast(`✅ Cliente ${payload.nome} carregado!`, 'success');
+        }
+      } catch (e) { /* ignora QR inválido */ }
+    },
+    () => {}
+  ).catch(() => { fecharScannerCaixa(); toast('Câmera indisponível', 'error'); });
+}
+
+function fecharScannerCaixa() {
+  document.getElementById('modal-scanner-cliente').classList.add('hidden');
+  if (_scannerCaixa) { _scannerCaixa.stop().catch(() => {}); _scannerCaixa = null; }
+}
+
+// ── Scanner QR de cliente (admin) ─────────────────────────────────
+let _scannerAdmin = null;
+
+function abrirScannerAdmin() {
+  document.getElementById('reader-admin').innerHTML = '';
+  document.getElementById('modal-scanner-admin').classList.remove('hidden');
+  _scannerAdmin = new Html5Qrcode('reader-admin');
+  _scannerAdmin.start(
+    { facingMode: 'environment' },
+    { fps: 10, qrbox: { width: 220, height: 220 } },
+    (decodedText) => {
+      try {
+        const payload = JSON.parse(decodedText);
+        if (payload.tipo === 'cliente' && payload.id) {
+          fecharScannerAdmin();
+          abrirEditarCliente(payload.id);
+          toast(`✅ Cliente ${payload.nome} encontrado!`, 'success');
+        }
+      } catch (e) { /* ignora QR inválido */ }
+    },
+    () => {}
+  ).catch(() => { fecharScannerAdmin(); toast('Câmera indisponível', 'error'); });
+}
+
+function fecharScannerAdmin() {
+  document.getElementById('modal-scanner-admin').classList.add('hidden');
+  if (_scannerAdmin) { _scannerAdmin.stop().catch(() => {}); _scannerAdmin = null; }
 }
 
 function mostrarModalCompra(payload) {
@@ -610,6 +1354,7 @@ async function confirmarCompra() {
   if (res.ok) {
     toast(`✅ Compra confirmada! Novo saldo: ${res.saldo} 🌟`, 'success');
     document.getElementById('cliente-saldo').textContent = res.saldo;
+    carregarPedidosCliente();
     carregarHistoricoCliente();
   } else {
     const msg = res.error === 'Saldo insuficiente'
@@ -625,6 +1370,30 @@ async function confirmarCompra() {
 async function iniciarAdmin() {
   await carregarAdmin();
   estado.clientePollTimer = setInterval(carregarAdmin, 15000);
+  setTimeout(restaurarTabAdmin, 0);
+}
+
+async function confirmarResetEvento() {
+  const confirmou = confirm(
+    '⚠️ ATENÇÃO — RESET DO EVENTO\n\n' +
+    'Isso vai apagar PERMANENTEMENTE:\n' +
+    '• Todos os clientes e seus saldos\n' +
+    '• Todas as vendas e recargas\n' +
+    '• Todos os pedidos\n\n' +
+    'Barracas e produtos serão MANTIDOS.\n\n' +
+    'Tem certeza? Esta ação não pode ser desfeita.'
+  );
+  if (!confirmou) return;
+  const confirmou2 = confirm('Tem ABSOLUTA certeza? Todos os dados de teste serão apagados.');
+  if (!confirmou2) return;
+
+  const res = await api('/api/admin/reset-evento', 'POST', { confirmacao: 'RESETAR' });
+  if (res.ok) {
+    toast('✅ Aplicação resetada! Pronta para o evento.', 'success');
+    await carregarAdmin();
+  } else {
+    toast(res.error || 'Erro ao resetar!', 'error');
+  }
 }
 
 function abrirTabAdmin(ev, tab) {
@@ -632,6 +1401,71 @@ function abrirTabAdmin(ev, tab) {
   document.querySelectorAll('#screen-admin .tab-content').forEach(c => c.classList.remove('active'));
   document.getElementById('tab-admin-' + tab).classList.add('active');
   ev.currentTarget.classList.add('active');
+  localStorage.setItem('tab_admin', tab);
+  if (tab === 'log') carregarLogAdmin();
+  if (tab === 'transacoes') filtrarTransacoes();
+}
+
+function restaurarTabAdmin() {
+  const tab = localStorage.getItem('tab_admin') || 'dashboard';
+  const btn = document.querySelector(`#screen-admin .tab-btn[onclick*="'${tab}'"]`);
+  if (btn) btn.click();
+}
+
+async function carregarLogAdmin() {
+  const logs = await api('/api/admin/log?limit=100');
+  const cont = document.getElementById('admin-log-lista');
+  if (!Array.isArray(logs) || !logs.length) {
+    cont.innerHTML = '<p style="color:#3A6EC8;text-align:center;padding:20px;">Nenhuma atividade ainda.</p>';
+    return;
+  }
+  const acaoIcon = { criar: '➕', excluir: '🗑️', editar: '✏️', recarregar: '💰', vender: '🛒', confirmar: '✅' };
+  cont.innerHTML = logs.map(l => {
+    const icon = acaoIcon[l.acao] || '📌';
+    const hora = l.criado_em ? new Date(l.criado_em).toLocaleString('pt-BR') : '';
+    const perfilBadge = l.perfil ? `<span class="badge badge-${l.perfil === 'admin' ? 'red' : l.perfil === 'caixa' ? 'green' : 'yellow'}">${l.perfil}</span>` : '';
+    const undone = l.desfeito ? `<span style="color:#9aaccc;font-size:0.8rem;margin-left:6px;">desfeito</span>` : '';
+    const undoBtn = !l.desfeito && l.desfazivel ? `<button class="btn btn-outline btn-sm" style="width:auto;padding:4px 12px;font-size:0.82rem;" onclick="desfazerLog('${l.id}')">↩️ Desfazer</button>` : '';
+    const detalhes = l.detalhes ? Object.entries(l.detalhes).map(([k,v]) => `<span style="font-size:0.8rem;color:#3A6EC8;">${k}: ${v}</span>`).join(' · ') : '';
+    return `
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 8px;border-bottom:1px solid #eee;${l.desfeito ? 'opacity:0.5;' : ''}">
+        <span style="font-size:1.2rem;">${icon}</span>
+        <div style="flex:1;min-width:0;">
+          <div style="font-weight:600;color:#1E3A6E;">${l.acao} ${l.entidade}${undone}</div>
+          <div style="font-size:0.8rem;color:#3A6EC8;">${hora} · ${perfilBadge} ${l.perfil_nome || ''}</div>
+          ${detalhes ? `<div style="font-size:0.78rem;color:#666;margin-top:2px;">${detalhes}</div>` : ''}
+        </div>
+        ${undoBtn}
+      </div>
+    `;
+  }).join('');
+}
+
+async function confirmarApagarTodosClientes() {
+  if (!confirm('Apagar TODOS os clientes? Esta ação não pode ser desfeita e também remove recargas!')) return;
+  const res = await api('/api/clientes', 'DELETE');
+  if (res.ok) {
+    toast(`${res.total} clientes excluídos!`, 'success');
+    carregarAdmin();
+  } else toast(res.error || 'Erro!', 'error');
+}
+
+async function confirmarApagarTodasTransacoes() {
+  if (!confirm('Apagar TODAS as transações? Esta ação não pode ser desfeita!')) return;
+  const res = await api('/api/transacoes', 'DELETE');
+  if (res.ok) {
+    toast(`${res.total} transações excluídas!`, 'success');
+    carregarAdmin();
+  } else toast(res.error || 'Erro!', 'error');
+}
+
+async function desfazerLog(id) {
+  const res = await api('/api/admin/log/' + id + '/desfazer', 'POST');
+  if (res.ok) {
+    toast('Ação desfeita!', 'success');
+    carregarLogAdmin();
+    carregarAdmin();
+  } else toast(res.error || 'Erro ao desfazer!', 'error');
 }
 
 async function carregarAdmin() {
@@ -639,13 +1473,14 @@ async function carregarAdmin() {
     api('/api/admin/relatorio'),
     api('/api/barracas')
   ]);
+  todasBarracas = Array.isArray(barracas) ? barracas : [];
 
   // ── Dashboard KPIs
   document.getElementById('admin-kpis').innerHTML = `
-    <div class="kpi-card"><div class="kpi-valor">${r.totalMovimentado ?? 0} 🌟</div><div class="kpi-label">Total Movimentado</div></div>
-    <div class="kpi-card"><div class="kpi-valor">${r.numClientes ?? 0}</div><div class="kpi-label">Clientes</div></div>
-    <div class="kpi-card"><div class="kpi-valor">${r.numVendas ?? 0}</div><div class="kpi-label">Vendas</div></div>
+    <div class="kpi-card"><div class="kpi-valor">${r.totalMovimentado ?? 0} 🌟</div><div class="kpi-label">Total Vendido</div></div>
     <div class="kpi-card"><div class="kpi-valor">${r.totalRecargas ?? 0} 🌟</div><div class="kpi-label">Total Recargas</div></div>
+    <div class="kpi-card"><div class="kpi-valor">${r.numClientes ?? 0}</div><div class="kpi-label">Clientes</div></div>
+    <div class="kpi-card"><div class="kpi-valor">${(r.numVendasQR ?? 0)} QR · ${(r.numPedidos ?? 0)} 📦</div><div class="kpi-label">Vendas (QR + Pedidos)</div></div>
   `;
 
   // ── Dashboard: vendas por barraca (todas, mesmo com 0)
@@ -657,50 +1492,502 @@ async function carregarAdmin() {
     </tr>
   `).join('') || '<tr><td colspan="3" style="text-align:center;color:#3A6EC8;">Sem dados</td></tr>';
 
-  // ── Aba Clientes
-  document.getElementById('admin-clientes-tabela').innerHTML = (r.clientes || [])
-    .sort((a, b) => b.saldo - a.saldo)
-    .map(c => `
-      <tr>
-        <td>${c.nome}</td>
-        <td><span class="badge badge-yellow">${c.codigo}</span></td>
-        <td style="text-align:right;font-weight:700;color:#C8A020;">${c.saldo} 🌟</td>
-      </tr>
-    `).join('') || '<tr><td colspan="3" style="text-align:center;color:#3A6EC8;">Sem clientes</td></tr>';
-
-  // ── Aba Transações
-  document.getElementById('admin-tx-tabela').innerHTML = (r.transacoes || []).slice(0, 100).map(t => `
-    <tr>
-      <td>${formatarHora(t.timestamp)}</td>
-      <td><span class="badge ${t.tipo === 'venda' ? 'badge-red' : 'badge-green'}">${t.tipo}</span></td>
-      <td>${t.clientes ? t.clientes.nome : '—'}</td>
-      <td>${t.barracas ? t.barracas.emoji + ' ' + t.barracas.nome : '—'}</td>
-      <td style="text-align:right;font-weight:700;">${t.valor} 🌟</td>
-    </tr>
-  `).join('') || '<tr><td colspan="5" style="text-align:center;color:#3A6EC8;">Sem transações</td></tr>';
-
   // ── Aba Barracas
   if (Array.isArray(barracas) && barracas.length) {
     document.getElementById('admin-barracas-lista').innerHTML = barracas.map(b => {
       const stats = (r.porBarraca || []).find(x => x.nome.includes(b.nome));
+      const codigoDisplay = b.codigo
+        ? `<span style="font-family:monospace;font-size:1.1rem;font-weight:900;color:#E8458C;letter-spacing:4px;background:#FFF0F6;padding:2px 10px;border-radius:8px;">${b.codigo}</span>`
+        : `<span style="color:#aaa;font-size:0.8rem;">sem código</span>`;
       return `
         <div class="card" style="margin-bottom:12px;">
           <div class="barraca-admin-card">
-            <div>
+            <div style="flex:1;">
               <span style="font-size:1.8rem;">${b.emoji}</span>
               <span style="font-size:1.1rem;font-weight:700;color:#1E3A6E;margin-left:8px;">${b.nome}</span>
+              ${b.responsavel ? `<div style="font-size:0.82rem;color:#E8458C;margin-top:4px;">👤 ${b.responsavel}</div>` : ''}
+              <div style="margin-top:6px;display:flex;align-items:center;gap:8px;">
+                <span style="font-size:0.78rem;color:#3A6EC8;font-weight:600;">🔑 Código:</span>
+                ${codigoDisplay}
+              </div>
               ${stats && stats.vendas > 0
                 ? `<div style="font-size:0.85rem;color:#3A6EC8;margin-top:4px;">${stats.vendas} vendas · ${stats.total} 🌟</div>`
                 : `<div style="font-size:0.85rem;color:#9aaccc;margin-top:4px;">Sem vendas ainda</div>`}
             </div>
-            <button class="btn btn-info btn-sm" style="width:auto;padding:10px 18px;" onclick="gerenciarProdutos('${b.id}','${b.emoji} ${b.nome.replace(/'/g,"\\'")}')">
-              🛒 Produtos
-            </button>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button class="btn btn-outline btn-sm" style="width:auto;padding:10px 14px;" onclick="editarBarraca('${b.id}','${b.emoji}','${b.nome.replace(/'/g,"\\'")}','${(b.responsavel||'').replace(/'/g,"\\'")}','${b.codigo||''}')">✏️ Editar</button>
+              <button class="btn btn-info btn-sm" style="width:auto;padding:10px 14px;" onclick="gerenciarProdutos('${b.id}','${b.emoji} ${b.nome.replace(/'/g,"\\'")}')">🛒 Produtos</button>
+            </div>
           </div>
         </div>
       `;
     }).join('');
   }
+
+  initFiltrosBarraca();
+
+  // inicialmente renderiza clientes na aba clientes
+  renderTabelaClientes(r.clientes || []);
+}
+
+// ── CLIENTES ──────────────────────────────────────────────────────
+let clienteEditandoId = null;
+
+function mostrarModalNovoCliente() {
+  const nome = prompt('Nome do novo cliente:');
+  if (!nome || !nome.trim()) return;
+  cadastrarClientePorAdmin(nome.trim());
+}
+
+async function cadastrarClientePorAdmin(nome) {
+  const c = await api('/api/clientes', 'POST', { nome });
+  if (c.id) { toast(`✅ ${c.nome} cadastrado!`, 'success'); carregarAdmin(); }
+  else toast(c.error || 'Erro!', 'error');
+}
+
+async function buscarAdminClientes() {
+  const q = document.getElementById('admin-busca-cliente').value.trim();
+  const r = await api('/api/admin/relatorio');
+  const clientes = (r.clientes || []).filter(c => !q || c.nome.toLowerCase().includes(q.toLowerCase()));
+  renderTabelaClientes(clientes);
+}
+
+function renderTabelaClientes(clientes) {
+  const sorted = [...clientes].sort((a, b) => b.saldo - a.saldo);
+  document.getElementById('admin-clientes-tabela').innerHTML = sorted.map(c => `
+    <tr>
+      <td style="font-weight:600;">${c.nome}</td>
+      <td><span class="badge badge-yellow">${c.codigo}</span></td>
+      <td style="text-align:right;font-weight:700;color:#C8A020;">${c.saldo} 🌟</td>
+      <td style="text-align:center;">
+        <button class="btn btn-outline btn-sm" style="width:auto;padding:6px 12px;font-size:0.85rem;" onclick="abrirEditarCliente('${c.id}')">✏️</button>
+        <button class="btn btn-danger btn-sm" style="width:auto;padding:6px 10px;font-size:0.8rem;" onclick="confirmarExcluirCliente('${c.id}','${c.nome.replace(/'/g,"\\'")}')">🗑️</button>
+      </td>
+    </tr>
+  `).join('') || '<tr><td colspan="4" style="text-align:center;color:#3A6EC8;">Nenhum cliente</td></tr>';
+}
+
+async function confirmarExcluirCliente(id, nome) {
+  if (!confirm(`Excluir cliente "${nome}"?`)) return;
+  const res = await api('/api/clientes/' + id, 'DELETE');
+  if (res.ok) {
+    toast(`"${nome}" excluído!`, 'success', async () => {
+      const log = await api('/api/admin/log/ultimo-excluir?entidade=cliente&nome=' + encodeURIComponent(nome));
+      if (log?.id && !log.desfeito) await api('/api/admin/log/' + log.id + '/desfazer', 'POST');
+      carregarAdmin();
+    });
+  } else toast(res.error || 'Erro!', 'error');
+}
+
+function abrirEditarCliente(id) {
+  clienteEditandoId = id;
+  api('/api/clientes/' + id).then(c => {
+    document.getElementById('editar-cliente-info').textContent = `Código: ${c.codigo}`;
+    document.getElementById('editar-cliente-nome').value = c.nome;
+    document.getElementById('editar-cliente-saldo').value = c.saldo;
+    document.getElementById('modal-editar-cliente').dataset.clienteNome = c.nome;
+    document.getElementById('modal-editar-cliente').classList.remove('hidden');
+  });
+}
+
+function verTransacoesCliente() {
+  const nome = document.getElementById('modal-editar-cliente').dataset.clienteNome || '';
+  fecharModalEditarCliente();
+  // Navega para aba transações e aplica filtro
+  const btnTx = document.querySelector('#screen-admin .tab-btn[onclick*="\'transacoes\'"]');
+  if (btnTx) btnTx.click();
+  setTimeout(() => {
+    document.getElementById('tx-filtro-cliente').value = nome;
+    filtrarTransacoes();
+  }, 50);
+}
+
+function fecharModalEditarCliente() {
+  document.getElementById('modal-editar-cliente').classList.add('hidden');
+  clienteEditandoId = null;
+}
+
+async function salvarEdicaoCliente() {
+  const nome   = document.getElementById('editar-cliente-nome').value.trim();
+  const saldo  = parseFloat(document.getElementById('editar-cliente-saldo').value);
+  const novoPin = document.getElementById('editar-cliente-novopin').value.trim();
+  if (!nome) { toast('Nome obrigatório!', 'error'); return; }
+  const updates = { nome };
+  if (!isNaN(saldo)) updates.saldo = saldo;
+  if (novoPin && /^\d{4}$/.test(novoPin)) updates.pin = novoPin;
+  else if (novoPin) { toast('PIN deve ter 4 dígitos numéricos!', 'error'); return; }
+
+  const res = await api('/api/clientes/' + clienteEditandoId, 'PUT', updates);
+  if (res.id) {
+    toast('Cliente atualizado!' + (novoPin ? ' Nova senha definida.' : ''), 'success');
+    fecharModalEditarCliente();
+    carregarAdmin();
+  } else { toast(res.error || 'Erro!', 'error'); }
+}
+
+async function deletarCliente() {
+  if (!confirm('Excluir este cliente? Esta ação não pode ser desfeita.')) return;
+  const nome = document.getElementById('editar-cliente-nome').value.trim();
+  const res = await api('/api/clientes/' + clienteEditandoId, 'DELETE');
+  if (res.ok) {
+    toast('Cliente excluído!', 'success', async () => {
+      await api('/api/admin/log/undo-cliente', 'POST', { nome, logId: null });
+    });
+    fecharModalEditarCliente();
+    carregarAdmin();
+  } else toast(res.error || 'Erro!', 'error');
+}
+
+// ── BARRACAS ──────────────────────────────────────────────────────
+function mostrarModalNovaBarraca() {
+  document.getElementById('nova-barraca-emoji').value = '';
+  document.getElementById('nova-barraca-nome').value = '';
+  document.getElementById('nova-barraca-responsavel').value = '';
+  document.getElementById('modal-nova-barraca').classList.remove('hidden');
+}
+
+function fecharModalNovaBarraca() {
+  document.getElementById('modal-nova-barraca').classList.add('hidden');
+}
+
+async function criarBarraca() {
+  const emoji = document.getElementById('nova-barraca-emoji').value.trim() || '🏪';
+  const nome = document.getElementById('nova-barraca-nome').value.trim();
+  const responsavel = document.getElementById('nova-barraca-responsavel').value.trim();
+  if (!nome) { toast('Nome obrigatório!', 'error'); return; }
+  const res = await api('/api/barracas', 'POST', { nome, emoji, responsavel });
+  if (res.id) {
+    fecharModalNovaBarraca();
+    carregarAdmin();
+    // Mostra o código gerado
+    if (res.codigo) {
+      document.getElementById('modal-codigo-valor').textContent = res.codigo;
+      document.getElementById('modal-codigo-barraca-nome').textContent = `${emoji} ${nome}`;
+      document.getElementById('modal-codigo-barraca').classList.remove('hidden');
+    } else {
+      toast('Barraca criada! (sem código — rode o SQL no Supabase)', 'success');
+    }
+  } else toast(res.error || 'Erro!', 'error');
+}
+
+function fecharModalCodigo() {
+  document.getElementById('modal-codigo-barraca').classList.add('hidden');
+}
+
+function copiarCodigo() {
+  const codigo = document.getElementById('modal-codigo-valor').textContent;
+  navigator.clipboard.writeText(codigo).then(() => toast('Código copiado!', 'success'));
+}
+
+let barracaEditandoId = null;
+
+function editarBarraca(id, emoji, nome, responsavel, codigo) {
+  barracaEditandoId = id;
+  document.getElementById('editar-barraca-id').value = id;
+  document.getElementById('editar-barraca-emoji').value = emoji;
+  document.getElementById('editar-barraca-nome').value = nome;
+  document.getElementById('editar-barraca-responsavel').value = responsavel || '';
+  document.getElementById('editar-barraca-codigo').value = codigo || '';
+  document.getElementById('editar-barraca-titulo').textContent = `✏️ Editar: ${nome}`;
+  document.getElementById('modal-editar-barraca').classList.remove('hidden');
+}
+
+async function regenerarCodigoBarraca() {
+  if (!barracaEditandoId) return;
+  if (!confirm('Gerar um novo código? O código antigo vai parar de funcionar imediatamente.')) return;
+  const res = await api('/api/barracas/' + barracaEditandoId + '/regenerar-codigo', 'POST');
+  if (res.ok) {
+    document.getElementById('editar-barraca-codigo').value = res.codigo;
+    toast(`✅ Novo código: ${res.codigo} — anote antes de salvar!`, 'success');
+  } else toast(res.error || 'Erro ao gerar código!', 'error');
+}
+
+function fecharModalEditarBarraca() {
+  document.getElementById('modal-editar-barraca').classList.add('hidden');
+  barracaEditandoId = null;
+}
+
+async function salvarEdicaoBarraca() {
+  const emoji = document.getElementById('editar-barraca-emoji').value.trim();
+  const nome = document.getElementById('editar-barraca-nome').value.trim();
+  const responsavel = document.getElementById('editar-barraca-responsavel').value.trim();
+  const codigo = document.getElementById('editar-barraca-codigo').value.trim();
+  if (!nome) { toast('Nome obrigatório!', 'error'); return; }
+  if (codigo && !/^\d{4,6}$/.test(codigo)) { toast('Código deve ter 4 a 6 dígitos numéricos!', 'error'); return; }
+  const res = await api('/api/barracas/' + barracaEditandoId, 'PUT', { nome, emoji, responsavel, codigo: codigo || undefined });
+  if (res.id) { toast('Barraca atualizada!', 'success'); fecharModalEditarBarraca(); carregarAdmin(); }
+  else toast(res.error || 'Erro!', 'error');
+}
+
+async function deletarBarraca() {
+  if (!confirm('Desativar esta barraca? Ela não aparecerá mais na lista.')) return;
+  const res = await api('/api/barracas/' + barracaEditandoId, 'DELETE');
+  if (res.ok) { toast('Barraca desativada!', 'success'); fecharModalEditarBarraca(); carregarAdmin(); }
+  else toast(res.error || 'Erro!', 'error');
+}
+
+// ── TRANSAÇÕES FILTRADAS ────────────────────────────────────────
+let txFiltros = { data: '', tipo: '', barraca_id: '', cliente_nome: '' };
+
+const _origemLabel = {
+  qr:      { texto: 'QR Code',  cor: '#E8458C', badge: 'badge-red' },
+  pedido:  { texto: 'Cardápio', cor: '#3A6EC8', badge: 'badge-blue' },
+  recarga: { texto: 'Recarga',  cor: '#16a34a', badge: 'badge-green' },
+};
+
+const _formaLabel = {
+  dinheiro: '💵 Dinheiro',
+  pix:      '📱 Pix',
+  cartao:   '💳 Cartão',
+  debito:   '💳 Débito',
+  credito:  '💳 Crédito',
+};
+
+async function filtrarTransacoes() {
+  txFiltros.data         = document.getElementById('tx-filtro-data').value;
+  txFiltros.tipo         = document.getElementById('tx-filtro-tipo').value;
+  txFiltros.barraca_id   = document.getElementById('tx-filtro-barraca').value;
+  txFiltros.cliente_nome = document.getElementById('tx-filtro-cliente').value;
+
+  let url = '/api/admin/transacoes?limit=500';
+  if (txFiltros.data)         url += '&data='         + txFiltros.data;
+  if (txFiltros.tipo)         url += '&tipo='         + txFiltros.tipo;
+  if (txFiltros.barraca_id)   url += '&barraca_id='   + txFiltros.barraca_id;
+  if (txFiltros.cliente_nome) url += '&cliente_nome=' + encodeURIComponent(txFiltros.cliente_nome);
+
+  const r = await api(url);
+  const tx = r.transacoes || [];
+
+  document.getElementById('tx-resumo').innerHTML = `
+    <div class="kpi-card"><div class="kpi-valor">${r.resumo?.totalVendas ?? 0} 🌟</div><div class="kpi-label">Vendas</div></div>
+    <div class="kpi-card"><div class="kpi-valor">${r.resumo?.totalRecargas ?? 0} 🌟</div><div class="kpi-label">Recargas</div></div>
+    <div class="kpi-card"><div class="kpi-valor">${r.resumo?.numVendas ?? 0}</div><div class="kpi-label">Nº Vendas</div></div>
+    <div class="kpi-card"><div class="kpi-valor">${r.resumo?.numRecargas ?? 0}</div><div class="kpi-label">Nº Recargas</div></div>
+  `;
+
+  document.getElementById('admin-tx-tabela').innerHTML = tx.map(t => {
+    const origem = _origemLabel[t._origem] || { texto: t.tipo, cor: '#888', badge: '' };
+
+    let localHtml = '—';
+    if (t.barracas) localHtml = `${t.barracas.emoji} ${t.barracas.nome}`;
+    else if (t.tipo === 'recarga') localHtml = `<span style="color:#16a34a;font-weight:600;">🏧 Caixa</span>`;
+
+    let detalhes = '—';
+    if (t._origem === 'recarga') {
+      detalhes = `<span style="font-size:0.85rem;">${_formaLabel[t.forma] || ('💵 ' + (t.forma || 'Dinheiro'))}</span>`;
+    } else if (t.itens) {
+      try {
+        const itens = JSON.parse(t.itens);
+        if (Array.isArray(itens) && itens.length)
+          detalhes = `<span style="font-size:0.8rem;color:#3A6EC8;">${itens.map(i => `${i.qty}x ${i.nome}`).join(', ')}</span>`;
+      } catch {}
+    }
+
+    return `
+      <tr>
+        <td style="white-space:nowrap;">${formatarHora(t.timestamp)}</td>
+        <td><span class="badge ${origem.badge}" style="white-space:nowrap;">${origem.texto}</span></td>
+        <td style="font-weight:600;">${t.clientes ? t.clientes.nome : '—'}</td>
+        <td>${localHtml}</td>
+        <td style="font-size:0.85rem;max-width:200px;">${detalhes}</td>
+        <td style="text-align:right;font-weight:700;white-space:nowrap;">${t.valor} 🌟</td>
+      </tr>
+    `;
+  }).join('') || '<tr><td colspan="6" style="text-align:center;color:#3A6EC8;">Nenhuma transação encontrada</td></tr>';
+}
+
+function exportarCSV() {
+  window.open('/api/admin/export-csv', '_blank');
+}
+
+async function initFiltrosBarraca() {
+  if (!todasBarracas.length) return;
+  const sel = document.getElementById('tx-filtro-barraca');
+  sel.innerHTML = '<option value="">Todas barracas</option>' +
+    todasBarracas.map(b => `<option value="${b.id}">${b.emoji} ${b.nome}</option>`).join('');
+}
+
+// ── FECHAR CAIXA ────────────────────────────────────────────────
+function mostrarModalFecharCaixa() {
+  const hoje = new Date().toISOString().split('T')[0];
+  document.getElementById('fechar-caixa-data').value = hoje;
+  document.getElementById('fechar-caixa-resultado').style.display = 'none';
+  document.getElementById('modal-fechar-caixa').classList.remove('hidden');
+}
+
+function fecharModalFecharCaixa() {
+  document.getElementById('modal-fechar-caixa').classList.add('hidden');
+}
+
+let _caixaRelatorio = null;
+
+async function gerarFecharCaixa() {
+  const data = document.getElementById('fechar-caixa-data').value;
+  if (!data) { toast('Selecione uma data!', 'error'); return; }
+  const r = await api('/api/admin/fechar-caixa', 'POST', { data });
+  if (!r.data) { toast('Erro ao gerar relatório!', 'error'); return; }
+  _caixaRelatorio = r;
+
+  document.getElementById('fechar-caixa-resumo').innerHTML = `
+    <div class="kpi-card"><div class="kpi-valor">${r.totalVendas} 🌟</div><div class="kpi-label">Total Vendas</div></div>
+    <div class="kpi-card"><div class="kpi-valor">${r.totalRecargas} 🌟</div><div class="kpi-label">Total Recargas</div></div>
+    <div class="kpi-card"><div class="kpi-valor">${r.numVendas}</div><div class="kpi-label">Nº Vendas</div></div>
+    <div class="kpi-card"><div class="kpi-valor">${r.numRecargas}</div><div class="kpi-label">Nº Recargas</div></div>
+  `;
+
+  document.getElementById('fechar-caixa-barracas').innerHTML = (r.porBarraca || []).map(b => `
+    <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #D0DCFF;">
+      <span>${b.emoji} ${b.nome}</span>
+      <span><strong>${b.vendas}</strong> vendas · <strong>${b.total} 🌟</strong></span>
+    </div>
+  `).join('') || '<p style="color:#9aaccc;text-align:center;">Nenhuma venda</p>';
+
+  document.getElementById('fechar-caixa-tx').innerHTML = (r.transacoes || []).map(t => `
+    <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #D0DCFF;font-size:0.9rem;">
+      <span>${formatarHora(t.timestamp)} ${t.tipo === 'venda' ? '🔴' : '🟢'} ${t.clientes ? t.clientes.nome : '—'} ${t.barracas ? '→ ' + (t.barracas.emoji||'') + ' ' + t.barracas.nome : ''}</span>
+      <span style="font-weight:700;">${t.valor} 🌟</span>
+    </div>
+  `).join('') || '<p style="color:#9aaccc;text-align:center;">Nenhuma transação</p>';
+
+  document.getElementById('fechar-caixa-resultado').style.display = 'block';
+}
+
+// ── Exportar Fechar Caixa ────────────────────────────────────────
+function exportarCaixaExcel() {
+  if (!_caixaRelatorio) { toast('Gere o relatório primeiro!', 'error'); return; }
+  const r = _caixaRelatorio;
+  const data = document.getElementById('fechar-caixa-data').value;
+  const wb = XLSX.utils.book_new();
+
+  // Aba 1: Resumo
+  const resumo = [
+    ['Cordel 2026 — Relatório de Caixa', ''],
+    ['Data', data],
+    ['', ''],
+    ['Total Vendas (Alegrias)', r.totalVendas],
+    ['Total Recargas (Alegrias)', r.totalRecargas],
+    ['Nº de Vendas', r.numVendas],
+    ['Nº de Recargas', r.numRecargas],
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(resumo), 'Resumo');
+
+  // Aba 2: Vendas por Barraca
+  const barracasData = [['Barraca', 'Nº Vendas', 'Total (Alegrias)']];
+  (r.porBarraca || []).forEach(b => barracasData.push([(b.emoji || '') + ' ' + b.nome, b.vendas, b.total]));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(barracasData), 'Por Barraca');
+
+  // Aba 3: Transações
+  const txData = [['Hora', 'Tipo', 'Cliente', 'Barraca', 'Valor (Alegrias)']];
+  (r.transacoes || []).forEach(t => txData.push([
+    formatarHora(t.timestamp),
+    t.tipo,
+    t.clientes?.nome || '—',
+    t.barracas ? (t.barracas.emoji || '') + ' ' + t.barracas.nome : '—',
+    t.valor
+  ]));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(txData), 'Transações');
+
+  XLSX.writeFile(wb, `cordel2026-caixa-${data}.xlsx`);
+  toast('📊 Excel exportado!', 'success');
+}
+
+// Remove emojis e caracteres não suportados pelo jsPDF
+function _semEmoji(str) {
+  return String(str || '')
+    .replace(/[\u{1F000}-\u{1FFFF}]/gu, '')
+    .replace(/[\u{2600}-\u{27BF}]/gu, '')
+    .replace(/[\u{1F300}-\u{1F9FF}]/gu, '')
+    .replace(/[^\x00-\xFF]/g, '')
+    .trim();
+}
+
+function exportarCaixaPDF() {
+  if (!_caixaRelatorio) { toast('Gere o relatório primeiro!', 'error'); return; }
+  const r = _caixaRelatorio;
+  const data = document.getElementById('fechar-caixa-data').value;
+  const dataFmt = data ? new Date(data + 'T12:00:00').toLocaleDateString('pt-BR') : data;
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
+  // Cabeçalho
+  doc.setFillColor(30, 58, 110);
+  doc.rect(0, 0, 210, 28, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(18); doc.setFont('helvetica', 'bold');
+  doc.text('Cordel 2026 — Relatório de Caixa', 14, 12);
+  doc.setFontSize(11); doc.setFont('helvetica', 'normal');
+  doc.text('Data: ' + dataFmt, 14, 22);
+
+  // KPIs
+  doc.setTextColor(30, 58, 110);
+  doc.setFontSize(10); doc.setFont('helvetica', 'bold');
+  let y = 36;
+  const kpis = [
+    ['Total Vendas', r.totalVendas + ' Alegrias'],
+    ['Total Recargas', r.totalRecargas + ' Alegrias'],
+    ['Nº de Vendas', String(r.numVendas)],
+    ['Nº de Recargas', String(r.numRecargas)],
+  ];
+  const colW = 45;
+  kpis.forEach((k, i) => {
+    const x = 14 + i * colW;
+    doc.setFillColor(238, 242, 255);
+    doc.roundedRect(x, y, colW - 3, 16, 3, 3, 'F');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+    doc.setTextColor(200, 160, 32);
+    doc.text(k[1], x + (colW - 3) / 2, y + 7, { align: 'center' });
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
+    doc.setTextColor(58, 110, 200);
+    doc.text(k[0], x + (colW - 3) / 2, y + 13, { align: 'center' });
+  });
+
+  // Vendas por Barraca
+  y += 24;
+  doc.setFontSize(12); doc.setFont('helvetica', 'bold'); doc.setTextColor(232, 69, 140);
+  doc.text('Vendas por Barraca', 14, y); y += 4;
+  doc.autoTable({
+    startY: y,
+    head: [['Barraca', 'Nº Vendas', 'Total (Alegrias)']],
+    body: (r.porBarraca || []).map(b => [_semEmoji(b.nome), b.vendas, b.total]),
+    headStyles: { fillColor: [30, 58, 110], textColor: 255, fontStyle: 'bold' },
+    alternateRowStyles: { fillColor: [238, 242, 255] },
+    styles: { fontSize: 10, cellPadding: 3 },
+    columnStyles: { 1: { halign: 'center' }, 2: { halign: 'right' } },
+    margin: { left: 14, right: 14 },
+  });
+
+  // Transações
+  y = doc.lastAutoTable.finalY + 8;
+  doc.setFontSize(12); doc.setFont('helvetica', 'bold'); doc.setTextColor(232, 69, 140);
+  doc.text('Transações do Dia', 14, y); y += 4;
+  doc.autoTable({
+    startY: y,
+    head: [['Hora', 'Tipo', 'Cliente', 'Barraca', 'Valor']],
+    body: (r.transacoes || []).map(t => [
+      formatarHora(t.timestamp),
+      t.tipo === 'venda' ? 'Venda' : 'Recarga',
+      _semEmoji(t.clientes?.nome || '—'),
+      t.barracas ? _semEmoji(t.barracas.nome) : '—',
+      t.valor + ' Alegrias'
+    ]),
+    headStyles: { fillColor: [30, 58, 110], textColor: 255, fontStyle: 'bold' },
+    alternateRowStyles: { fillColor: [238, 242, 255] },
+    styles: { fontSize: 9, cellPadding: 2 },
+    columnStyles: { 4: { halign: 'right' } },
+    margin: { left: 14, right: 14 },
+  });
+
+  // Rodapé
+  const pageCount = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    doc.setFontSize(8); doc.setTextColor(150);
+    doc.text(`Igreja Batista Zona Sul · Cordel 2026 · Página ${i}/${pageCount}`, 105, 292, { align: 'center' });
+  }
+
+  doc.save(`cordel2026-caixa-${data}.pdf`);
+  toast('📄 PDF exportado!', 'success');
 }
 
 // ── Gerenciamento de Produtos ────────────────────────────────────
@@ -724,9 +2011,11 @@ async function carregarProdutosModal(barracaId) {
   }
   cont.innerHTML = produtos.map(p => `
     <div class="produto-linha">
-      <span class="produto-linha-nome">${p.nome}</span>
-      <span class="produto-linha-preco">${p.preco} 🌟</span>
-      <button class="btn btn-danger btn-sm" style="width:auto;min-height:36px;padding:4px 12px;font-size:0.85rem;" onclick="deletarProduto('${p.id}')">Remover</button>
+      <input type="text" id="prod-nome-${p.id}" value="${p.nome}" class="form-control" style="flex:2;min-width:120px;font-size:0.85rem;" />
+      <input type="number" id="prod-preco-${p.id}" value="${p.preco}" class="form-control" style="width:70px;font-size:0.85rem;" step="0.5" min="1" />
+      <input type="number" id="admin-prod-estoque-${p.id}" value="${p.estoque ?? -1}" class="form-control" style="width:70px;font-size:0.85rem;" placeholder="-1" title="Estoque" />
+      <button class="btn btn-success btn-sm" style="width:auto;min-height:36px;padding:4px 10px;font-size:0.85rem;" onclick="editarProduto('${p.id}')" title="Salvar">💾</button>
+      <button class="btn btn-danger btn-sm" style="width:auto;min-height:36px;padding:4px 12px;font-size:0.85rem;" onclick="deletarProduto('${p.id}')">✕</button>
     </div>
   `).join('');
 }
@@ -734,17 +2023,37 @@ async function carregarProdutosModal(barracaId) {
 async function adicionarProduto() {
   const nome = document.getElementById('novo-produto-nome').value.trim();
   const preco = parseFloat(document.getElementById('novo-produto-preco').value);
+  const estoque = parseInt(document.getElementById('novo-produto-estoque').value) || -1;
   if (!nome) { toast('Digite o nome do produto!', 'error'); return; }
   if (!preco || preco <= 0) { toast('Digite um preço válido!', 'error'); return; }
-  const res = await api('/api/barracas/' + produtosBarracaAtual + '/produtos', 'POST', { nome, preco });
+  const res = await api('/api/barracas/' + produtosBarracaAtual + '/produtos', 'POST', { nome, preco, estoque });
   if (res.id) {
     toast('Produto adicionado!', 'success');
     document.getElementById('novo-produto-nome').value = '';
     document.getElementById('novo-produto-preco').value = '';
+    document.getElementById('novo-produto-estoque').value = '';
     await carregarProdutosModal(produtosBarracaAtual);
   } else {
     toast(res.error || 'Erro ao adicionar!', 'error');
   }
+}
+
+async function adminSalvarEstoque(id) {
+  const estoque = parseInt(document.getElementById('admin-prod-estoque-' + id).value);
+  const res = await api('/api/produtos/' + id + '/estoque', 'PUT', { estoque });
+  if (res.id) toast('Estoque atualizado!', 'success');
+  else toast(res.error || 'Erro!', 'error');
+}
+
+async function editarProduto(id) {
+  const nome = document.getElementById('prod-nome-' + id).value.trim();
+  const preco = parseFloat(document.getElementById('prod-preco-' + id).value);
+  const estoque = parseInt(document.getElementById('admin-prod-estoque-' + id).value);
+  if (!nome) { toast('Nome obrigatório!', 'error'); return; }
+  if (!preco || preco <= 0) { toast('Preço inválido!', 'error'); return; }
+  const res = await api('/api/produtos/' + id, 'PUT', { nome, preco, estoque });
+  if (res.id) { toast('Produto atualizado!', 'success'); await carregarProdutosModal(produtosBarracaAtual); }
+  else { toast(res.error || 'Erro!', 'error'); }
 }
 
 async function deletarProduto(id) {
@@ -765,11 +2074,6 @@ function fecharModalProdutos() {
 // ═══════════════════════════════════════════════════════════════════
 //  UTILITÁRIOS
 // ═══════════════════════════════════════════════════════════════════
-function mostrarTela(id) {
-  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-  document.getElementById(id).classList.add('active');
-}
-
 function clearPolls() {
   clearInterval(estado.qrPollTimer);
   clearInterval(estado.clientePollTimer);
@@ -779,21 +2083,48 @@ async function api(url, method = 'GET', body = null) {
   try {
     const opts = { method, headers: { 'Content-Type': 'application/json' } };
     if (body) opts.body = JSON.stringify(body);
+    console.log('[API]', method, url);
     const res = await fetch(API + url, opts);
-    return await res.json();
+    const data = await res.json();
+    console.log('[API] resposta:', url, res.status, JSON.stringify(data).substring(0, 150));
+    return data;
   } catch (e) {
-    console.error('API error', url, e);
+    console.error('[API] erro', url, e);
     return {};
   }
 }
 
 let toastTimer;
-function toast(msg, tipo = '') {
+let toastUndoFn = null;
+let toastUndoTimer = null;
+
+function toast(msg, tipo = '', undoFn = null) {
   const el = document.getElementById('toast');
-  el.textContent = msg;
-  el.className = 'show ' + (tipo === 'success' ? 'success' : tipo === 'error' ? 'error' : '');
+  toastUndoFn = undoFn;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.remove('show'), 3500);
+  clearTimeout(toastUndoTimer);
+
+  let undoHtml = '';
+  if (typeof undoFn === 'function') {
+    undoHtml = `<button class="toast-undo" onclick="toastDesfazer()">Desfazer</button>`;
+  }
+
+  el.innerHTML = `<span>${msg}</span>${undoHtml}`;
+  el.className = 'show ' + (tipo === 'success' ? 'success' : tipo === 'error' ? 'error' : '');
+  toastTimer = setTimeout(() => {
+    el.classList.remove('show');
+    toastUndoFn = null;
+  }, 6000);
+}
+
+function toastDesfazer() {
+  if (typeof toastUndoFn === 'function') {
+    toastUndoFn();
+    toastUndoFn = null;
+  }
+  const el = document.getElementById('toast');
+  el.classList.remove('show');
+  clearTimeout(toastTimer);
 }
 
 function formatarHora(ts) {
