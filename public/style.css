@@ -441,6 +441,12 @@ tr:hover td { background: #F5F8FF; }
   100% { transform: translateY(115vh) rotate(680deg); opacity: 0; }
 }
 
+/* ── PISCADA NA ABA DE PEDIDOS ── */
+@keyframes abaPiscar {
+  0%, 100% { background: linear-gradient(135deg, #E8458C, #C0287A); }
+  50%      { background: linear-gradient(135deg, #FFB81C, #F39C12); }
+}
+
 /* ═══════════════════════════════════════════════════════════════
    MOBILE (celulares) — layout compacto e sem sobreposição
 ═══════════════════════════════════════════════════════════════ */

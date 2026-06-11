@@ -713,6 +713,13 @@ async function gerenteCarregarPedidos() {
           new Notification('🔔 Novo pedido!', { body: `${nomeCliente}: ${resumo}`, icon: '/favicon.ico' });
         }
       });
+      // Piscar a aba de Pedidos
+      const abaPedidos = document.querySelector(`#screen-gerente .tab-btn[onclick*="'pedidos'"]`);
+      if (abaPedidos) {
+        abaPedidos.style.animation = 'none';
+        setTimeout(() => { abaPedidos.style.animation = 'abaPiscar 2.4s ease-in-out'; }, 10);
+        setTimeout(() => { abaPedidos.style.animation = ''; }, 2450);
+      }
     }
     _ultimosPedidosIds = new Set(pedidos.map(p => p.id));
   } else {
