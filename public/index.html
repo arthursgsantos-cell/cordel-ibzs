@@ -42,12 +42,25 @@
 <div id="modal-venda-especie" class="modal-overlay hidden">
   <div class="modal-box" style="max-width:380px;">
     <h3>🪙 Receber em Espécie</h3>
-    <p style="color:#3A6EC8;font-size:0.92rem;margin-bottom:10px;">Confira as <strong>Alegrias físicas</strong> recebidas do cliente antes de confirmar.</p>
-    <div id="venda-especie-itens" style="text-align:left;"></div>
-    <div id="venda-especie-total" style="font-size:1.5rem;font-weight:700;color:#C8A020;margin:14px 0;"></div>
+    <div id="venda-especie-itens" style="text-align:left;margin-bottom:10px;"></div>
+    <div id="venda-especie-total" style="font-size:1.4rem;font-weight:700;color:#C8A020;margin-bottom:14px;"></div>
+
+    <div class="form-group" style="margin-bottom:8px;">
+      <label style="font-size:0.92rem;">Alegrias recebidas do cliente</label>
+      <input type="number" id="especie-pagamento" class="form-control" min="0" step="1"
+        inputmode="numeric" placeholder="0"
+        oninput="calcularTroco()" style="text-align:center;font-size:1.4rem;font-weight:700;" />
+    </div>
+
+    <div id="especie-troco-box" style="display:none;background:#F0FDF4;border:2px solid #4ade80;border-radius:12px;padding:12px;text-align:center;margin-bottom:14px;">
+      <div style="font-size:0.85rem;color:#166534;">Troco a devolver</div>
+      <div id="especie-troco-valor" style="font-size:2rem;font-weight:700;color:#16a34a;"></div>
+    </div>
+    <div id="especie-troco-falta" style="display:none;background:#FFF0F0;border:2px solid #E8458C;border-radius:12px;padding:10px;text-align:center;font-size:0.9rem;color:#E8458C;font-weight:600;margin-bottom:14px;"></div>
+
     <div style="display:flex;gap:10px;">
       <button class="btn btn-outline btn-sm" style="flex:1;" onclick="fecharModalVendaEspecie()">Cancelar</button>
-      <button class="btn btn-success btn-sm" style="flex:1.4;" onclick="confirmarVendaEspecie()">✅ Recebi as Alegrias</button>
+      <button id="btn-confirmar-especie" class="btn btn-success btn-sm" style="flex:1.4;" onclick="confirmarVendaEspecie()">✅ Confirmar</button>
     </div>
   </div>
 </div>

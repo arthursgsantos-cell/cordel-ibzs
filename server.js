@@ -807,27 +807,32 @@ async function formaColunaExiste() {
 }
 
 app.post('/api/vendas/especie', async (req, res) => {
-  const { barraca_id, itens } = req.body;
+  const { barraca_id, itens, pagamento } = req.body;
   if (!barraca_id || !Array.isArray(itens) || !itens.length) {
     return res.status(400).json({ error: 'Dados incompletos' });
   }
   const valor = itens.reduce((s, i) => s + (parseFloat(i.preco) * (parseInt(i.qty) || 1)), 0);
   if (!valor || valor <= 0) return res.status(400).json({ error: 'Valor inválido' });
+  const troco = pagamento ? Math.max(0, parseFloat(pagamento) - valor) : 0;
 
-  const insert = { tipo: 'venda', barraca_id, valor, itens: JSON.stringify(itens) };
-  if (await formaColunaExiste()) {
-    insert.forma = 'especie';
-  } else {
-    // Fallback sem migração: marca a forma no primeiro item (mesmo padrão do _motivo)
-    const marcados = itens.map((i, idx) => idx === 0 ? { ...i, _forma: 'especie' } : i);
-    insert.itens = JSON.stringify(marcados);
-  }
+  const itensComForma = itens.map((i, idx) => idx === 0 ? { ...i, _forma: 'especie' } : i);
+  const insert = { tipo: 'venda', barraca_id, valor, itens: JSON.stringify(itensComForma) };
+  if (await formaColunaExiste()) insert.forma = 'especie';
 
   const { data: tx, error } = await supabase.from('transacoes').insert(insert).select().single();
   if (error) return res.status(500).json({ error: error.message });
 
+  // Cria pedido como confirmado para aparecer no histórico da barraca
+  await supabase.from('pedidos').insert({
+    barraca_id,
+    cliente_id: null,
+    itens: JSON.stringify(itens.map(i => ({ ...i, _forma: 'especie', _troco: troco }))),
+    valor_total: valor,
+    status: 'confirmado'
+  });
+
   await decrementarEstoque(itens, barraca_id);
-  res.status(201).json({ ok: true, valor, transacao_id: tx.id });
+  res.status(201).json({ ok: true, valor, troco, transacao_id: tx.id });
 });
 
 // ── TRANSAÇÕES ────────────────────────────────────────────────────────────────

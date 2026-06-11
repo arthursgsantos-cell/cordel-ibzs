@@ -637,7 +637,38 @@ function abrirVendaEspecie() {
     <div class="carrinho-item"><span>${i.qty}x ${i.nome}</span><span>${i.preco * i.qty} 🌟</span></div>
   `).join('');
   document.getElementById('venda-especie-total').textContent = `Total: ${total} Alegrias 🌟`;
+  document.getElementById('especie-pagamento').value = total;
+  document.getElementById('especie-troco-box').style.display = 'none';
+  document.getElementById('especie-troco-falta').style.display = 'none';
   document.getElementById('modal-venda-especie').classList.remove('hidden');
+  calcularTroco();
+}
+
+function calcularTroco() {
+  const itens = estado.carrinho.filter(i => i.qty > 0);
+  const total = itens.reduce((s, i) => s + i.preco * i.qty, 0);
+  const pagamento = parseInt(document.getElementById('especie-pagamento').value) || 0;
+  const troco = pagamento - total;
+  const trocoBox  = document.getElementById('especie-troco-box');
+  const faltaBox  = document.getElementById('especie-troco-falta');
+  const btnConf   = document.getElementById('btn-confirmar-especie');
+
+  trocoBox.style.display  = 'none';
+  faltaBox.style.display  = 'none';
+
+  if (pagamento > 0 && troco > 0) {
+    document.getElementById('especie-troco-valor').textContent = `${troco} 🌟`;
+    trocoBox.style.display = 'block';
+    btnConf.disabled = false;
+  } else if (pagamento > 0 && troco < 0) {
+    faltaBox.textContent = `Faltam ${Math.abs(troco)} Alegrias para completar o pagamento`;
+    faltaBox.style.display = 'block';
+    btnConf.disabled = true;
+  } else if (pagamento === total) {
+    btnConf.disabled = false;
+  } else {
+    btnConf.disabled = pagamento === 0;
+  }
 }
 
 function fecharModalVendaEspecie() {
@@ -647,17 +678,23 @@ function fecharModalVendaEspecie() {
 async function confirmarVendaEspecie() {
   const itens = estado.carrinho.filter(i => i.qty > 0);
   if (!itens.length) { fecharModalVendaEspecie(); return; }
+  const total    = itens.reduce((s, i) => s + i.preco * i.qty, 0);
+  const pagamento = parseInt(document.getElementById('especie-pagamento').value) || total;
+  const troco    = pagamento - total;
+
   const res = await api('/api/vendas/especie', 'POST', {
     barraca_id: estado.barracaId,
-    itens: itens.map(i => ({ id: i.id, nome: i.nome, preco: i.preco, qty: i.qty }))
+    itens: itens.map(i => ({ id: i.id, nome: i.nome, preco: i.preco, qty: i.qty })),
+    pagamento
   });
   if (res.ok) {
     fecharModalVendaEspecie();
     chuvaDeMoedas();
-    toast(`✅ Venda em espécie registrada! ${res.valor} Alegrias`, 'success');
+    const trocoMsg = troco > 0 ? ` · Troco: ${troco} 🌟` : '';
+    toast(`✅ Venda registrada! ${res.valor} Alegrias${trocoMsg}`, 'success');
     estado.carrinho.forEach(i => i.qty = 0);
     renderCarrinho();
-    await renderProdutos(estado.barracaId); // atualiza estoque exibido
+    await renderProdutos(estado.barracaId);
   } else {
     toast(res.error || 'Erro ao registrar venda!', 'error');
   }
@@ -801,19 +838,26 @@ async function gerenteCarregarHistorico() {
     let itens = [];
     try { itens = JSON.parse(p.itens || '[]'); } catch {}
     const cor = statusCor[p.status] || '#3A6EC8';
+    const isEspecie = itens.some(i => i._forma === 'especie') || !p.cliente_id;
+    const troco = isEspecie ? (itens[0]?._troco ?? 0) : 0;
+    const nomeCliente = isEspecie ? '🪙 Espécie' : (p.clientes?.nome || 'Cliente');
+    const extraInfo = isEspecie && troco > 0
+      ? `<div style="font-size:0.8rem;color:#16a34a;font-weight:600;">Troco devolvido: ${troco} 🌟</div>`
+      : isEspecie ? '' : '';
     return `
       <div style="border-left:4px solid ${cor};padding:10px 12px;margin-bottom:8px;background:#fafbff;border-radius:0 8px 8px 0;">
         <div style="display:flex;justify-content:space-between;align-items:start;">
           <div>
-            <div style="font-weight:700;color:#1E3A6E;">${p.clientes?.nome || 'Cliente'}</div>
+            <div style="font-weight:700;color:#1E3A6E;">${nomeCliente}</div>
             <div style="font-size:0.8rem;color:${cor};font-weight:600;">${statusLabel[p.status] || p.status}</div>
+            ${extraInfo}
           </div>
           <div style="text-align:right;">
             <div style="font-weight:700;color:#C8A020;">${p.valor_total ?? '?'} 🌟</div>
             <div style="font-size:0.75rem;color:#3A6EC8;">${formatarHora(p.criado_em)}</div>
           </div>
         </div>
-        <div style="margin-top:4px;font-size:0.83rem;color:#3A6EC8;">${itens.map(i => `${i.qty}x ${i.nome}`).join(' · ')}</div>
+        <div style="margin-top:4px;font-size:0.83rem;color:#3A6EC8;">${itens.filter(i => i.nome).map(i => `${i.qty}x ${i.nome}`).join(' · ')}</div>
       </div>`;
   }).join('');
 }
