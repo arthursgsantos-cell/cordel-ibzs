@@ -265,8 +265,8 @@ async function confirmarCriarPin() {
     estado.clienteNome = res.nome;
     toast('Conta criada! Anote seu código: ' + res.codigo, 'success');
   } else {
-    // novo cliente
-    const cliente = await api('/api/clientes', 'POST', { nome, pin });
+    // novo cliente (auto-cadastro: registra como 'cliente', não 'caixa')
+    const cliente = await api('/api/clientes', 'POST', { nome, pin, perfil: 'cliente', perfilNome: nome });
     if (!cliente.id) { toast(cliente.error || 'Erro ao criar conta!', 'error'); return; }
     estado.clienteId   = cliente.id;
     estado.clienteNome = cliente.nome;
@@ -1521,12 +1521,13 @@ function restaurarTabAdmin() {
 }
 
 async function carregarLogAdmin() {
-  const logs = await api('/api/admin/log?limit=100');
+  const logs = await api('/api/admin/log?limit=50');
   const cont = document.getElementById('admin-log-lista');
   if (!Array.isArray(logs) || !logs.length) {
     cont.innerHTML = '<p style="color:#3A6EC8;text-align:center;padding:20px;">Nenhuma atividade ainda.</p>';
     return;
   }
+  const aviso = logs.length >= 50 ? `<p style="text-align:center;font-size:0.8rem;color:#9aaccc;padding:4px 0 8px;">📋 Mostrando os últimos ${logs.length} registros</p>` : '';
   const acaoIcon = { criar: '➕', excluir: '🗑️', editar: '✏️', recarregar: '💰', vender: '🛒', confirmar: '✅' };
   cont.innerHTML = logs.map(l => {
     const icon = acaoIcon[l.acao] || '📌';
@@ -1547,6 +1548,7 @@ async function carregarLogAdmin() {
       </div>
     `;
   }).join('');
+  cont.innerHTML = aviso + cont.innerHTML;
 }
 
 async function confirmarApagarTodosClientes() {
@@ -1860,7 +1862,7 @@ async function filtrarTransacoes() {
   txFiltros.barraca_id   = document.getElementById('tx-filtro-barraca').value;
   txFiltros.cliente_nome = document.getElementById('tx-filtro-cliente').value;
 
-  let url = '/api/admin/transacoes?limit=500';
+  let url = '/api/admin/transacoes?limit=100';
   if (txFiltros.data)         url += '&data='         + txFiltros.data;
   if (txFiltros.tipo)         url += '&tipo='         + txFiltros.tipo;
   if (txFiltros.barraca_id)   url += '&barraca_id='   + txFiltros.barraca_id;
@@ -1876,7 +1878,8 @@ async function filtrarTransacoes() {
     <div class="kpi-card"><div class="kpi-valor">${r.resumo?.numRecargas ?? 0}</div><div class="kpi-label">Nº Recargas</div></div>
   `;
 
-  document.getElementById('admin-tx-tabela').innerHTML = tx.map(t => {
+  const avisoTx = tx.length >= 100 ? `<tr><td colspan="6" style="text-align:center;font-size:0.8rem;color:#9aaccc;padding:6px;">📋 Mostrando os últimos ${tx.length} registros — use os filtros para refinar</td></tr>` : '';
+  document.getElementById('admin-tx-tabela').innerHTML = avisoTx + tx.map(t => {
     const origem = _origemLabel[t._origem] || { texto: t.tipo, cor: '#888', badge: '' };
 
     let localHtml = '—';

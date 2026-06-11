@@ -36,7 +36,8 @@ body {
 .screen.active { display: block; }
 
 /* ── LOGIN ── */
-#screen-login.active {
+#screen-login.active,
+#screen-criar-pin.active {
   display: flex; flex-direction: column; align-items: center;
   justify-content: center; min-height: 100vh; padding: 20px;
   background: linear-gradient(160deg, #EEF2FF 0%, #D8E4FF 100%);
@@ -237,13 +238,14 @@ tr:hover td { background: #F5F8FF; }
 
 /* ── TOAST ── */
 #toast {
-  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(80px);
+  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(calc(100% + 40px));
   background: #1E3A6E; color: white; padding: 14px 28px; border-radius: 12px;
   font-size: 1rem; font-weight: 600; z-index: 9999;
-  transition: transform 0.3s;
+  transition: transform 0.3s, opacity 0.3s;
   display: flex; align-items: center; gap: 16px;
+  opacity: 0; pointer-events: none;
 }
-#toast.show { transform: translateX(-50%) translateY(0); }
+#toast.show { transform: translateX(-50%) translateY(0); opacity: 1; pointer-events: all; }
 #toast.success { background: #16a34a; }
 #toast.error { background: #dc2626; }
 .toast-undo {

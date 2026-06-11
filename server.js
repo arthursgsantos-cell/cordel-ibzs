@@ -123,7 +123,8 @@ app.get('/api/clientes', async (req, res) => {
     if (error) return res.status(500).json({ error: error.message });
     return res.json(data);
   }
-  const { data, error } = await supabase.from('clientes').select('*').order('nome');
+  const lim = parseInt(req.query.limit) || 500;
+  const { data, error } = await supabase.from('clientes').select('*').order('nome').limit(lim);
   if (error) return res.status(500).json({ error: error.message });
   if (!nome) return res.json(data);
   const scored = data
@@ -533,7 +534,7 @@ app.delete('/api/barracas/:id', async (req, res) => {
 
 app.get('/api/admin/transacoes', async (req, res) => {
   const { cliente_id, barraca_id, tipo, data, limit, cliente_nome } = req.query;
-  const lim = parseInt(limit) || 500;
+  const lim = Math.min(parseInt(limit) || 100, 500);
 
   let txQuery = supabase
     .from('transacoes')
@@ -1318,7 +1319,7 @@ app.get('/api/admin/log', async (req, res) => {
     .from('activity_log')
     .select('*')
     .order('criado_em', { ascending: false })
-    .limit(parseInt(limit) || 100);
+    .limit(Math.min(parseInt(limit) || 50, 200));
   if (error) return res.status(500).json({ error: error.message });
   res.json(data || []);
 });
