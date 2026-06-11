@@ -1123,12 +1123,27 @@ async function clienteCarregarCardapio() {
   }
   cont.innerHTML = cardapio.map(b => {
     const temProdutos = b.produtos && b.produtos.length > 0;
+    const n = b.num_pendentes || 0;
+    const m = b.espera_media_min || 0;
+    let esperaHtml = '';
+    if (temProdutos) {
+      if (n === 0) {
+        esperaHtml = '<span style="font-size:0.78rem;color:#16a34a;font-weight:600;">🟢 Tranquilo</span>';
+      } else if (m < 5) {
+        esperaHtml = `<span style="font-size:0.78rem;color:#16a34a;font-weight:600;">⏱ ~${m}min</span>`;
+      } else if (m < 15) {
+        esperaHtml = `<span style="font-size:0.78rem;color:#d97706;font-weight:600;">⏱ ~${m}min</span>`;
+      } else {
+        esperaHtml = `<span style="font-size:0.78rem;color:#dc2626;font-weight:600;">⏱ ~${m}min</span>`;
+      }
+    }
     return `
       <div class="barraca-item" onclick="${temProdutos ? 'clienteAbrirBarraca(\'' + b.id + '\',\'' + b.nome.replace(/'/g, '\\\'') + '\',\'' + b.emoji + '\')' : ''}" style="${temProdutos ? 'cursor:pointer;' : 'opacity:0.5;'}">
         <span style="font-size:1.8rem;">${b.emoji}</span>
         <div style="flex:1;margin-left:10px;">
           <div style="font-weight:700;color:#1E3A6E;font-size:1rem;">${b.nome}</div>
-          <div style="font-size:0.82rem;color:#3A6EC8;">${b.produtos ? b.produtos.length : 0} itens</div>
+          <div style="font-size:0.82rem;color:#3A6EC8;margin-bottom:2px;">${b.produtos ? b.produtos.length : 0} itens</div>
+          ${esperaHtml}
         </div>
         ${temProdutos ? '<span style="font-size:1.2rem;">→</span>' : '<span style="font-size:0.8rem;color:#9aaccc;">Sem produtos</span>'}
       </div>

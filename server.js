@@ -1136,10 +1136,28 @@ app.get('/api/cardapio', async (req, res) => {
     return res.json(fallback);
   }
 
-  const resultado = (barracas || []).map(b => ({
-    id: b.id, nome: b.nome, emoji: b.emoji,
-    produtos: (produtos || []).filter(p => p.barraca_id === b.id)
-  }));
+  // Busca pedidos pendentes para calcular espera por barraca
+  const agora = new Date();
+  const { data: pendentes } = await supabase
+    .from('pedidos').select('barraca_id, criado_em').eq('status', 'pendente');
+
+  const esperaPorBarraca = {};
+  (pendentes || []).forEach(p => {
+    const min = Math.max(0, Math.floor((agora - new Date(p.criado_em)) / 60000));
+    if (!esperaPorBarraca[p.barraca_id]) esperaPorBarraca[p.barraca_id] = [];
+    esperaPorBarraca[p.barraca_id].push(min);
+  });
+
+  const resultado = (barracas || []).map(b => {
+    const esperas = esperaPorBarraca[b.id] || [];
+    const media = esperas.length ? Math.round(esperas.reduce((s, v) => s + v, 0) / esperas.length) : 0;
+    return {
+      id: b.id, nome: b.nome, emoji: b.emoji,
+      produtos: (produtos || []).filter(p => p.barraca_id === b.id),
+      espera_media_min: media,
+      num_pendentes: esperas.length
+    };
+  });
   console.log('[CARDAPIO] resultado final:', resultado.length, 'barracas');
 
   res.json(resultado);
