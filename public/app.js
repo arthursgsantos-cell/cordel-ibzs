@@ -463,10 +463,16 @@ async function gerenteCarregarProdutos() {
           oninput="_agendarRascunho('${p.id}')" />
         <span id="ger-draft-${p.id}" title="Rascunho não salvo" style="display:${temDraft?'inline':'none'};position:absolute;right:8px;top:50%;transform:translateY(-50%);font-size:0.75rem;color:#E8458C;font-weight:700;">●</span>
       </div>
-      <input type="number" id="ger-prod-preco-${p.id}" value="${preco}" class="form-control${temDraft ? ' input-rascunho' : ''}" style="flex:1;min-width:80px;font-size:0.95rem;" step="0.5" min="1"
-        oninput="_agendarRascunho('${p.id}')" />
-      <input type="number" id="ger-prod-estoque-${p.id}" value="${estoque}" class="form-control${temDraft ? ' input-rascunho' : ''}" style="flex:1;min-width:70px;font-size:0.95rem;" placeholder="-1" title="Estoque (-1 = ilimitado)"
-        oninput="_agendarRascunho('${p.id}')" />
+      <div class="prod-campo" style="flex:1;min-width:80px;">
+        <span class="prod-campo-label">Preço 🌟</span>
+        <input type="number" id="ger-prod-preco-${p.id}" value="${preco}" class="form-control${temDraft ? ' input-rascunho' : ''}" style="width:100%;font-size:0.95rem;" step="0.5" min="1"
+          oninput="_agendarRascunho('${p.id}')" />
+      </div>
+      <div class="prod-campo" style="flex:1;min-width:70px;">
+        <span class="prod-campo-label">Estoque</span>
+        <input type="number" id="ger-prod-estoque-${p.id}" value="${estoque}" class="form-control${temDraft ? ' input-rascunho' : ''}" style="width:100%;font-size:0.95rem;" placeholder="-1" title="Estoque (-1 = ilimitado)"
+          oninput="_agendarRascunho('${p.id}')" />
+      </div>
       <button class="btn btn-primary btn-sm" style="width:auto;padding:8px 12px;" onclick="gerenteSalvarProduto('${p.id}')">💾</button>
       <button class="btn btn-danger btn-sm" style="width:auto;padding:8px 12px;" onclick="gerenteDeletarProduto('${p.id}')">🗑️</button>
     </div>
@@ -2110,8 +2116,14 @@ async function carregarProdutosModal(barracaId) {
   cont.innerHTML = produtos.map(p => `
     <div class="produto-linha">
       <input type="text" id="prod-nome-${p.id}" value="${p.nome}" class="form-control" style="flex:2;min-width:120px;font-size:0.85rem;" />
-      <input type="number" id="prod-preco-${p.id}" value="${p.preco}" class="form-control" style="width:70px;font-size:0.85rem;" step="0.5" min="1" />
-      <input type="number" id="admin-prod-estoque-${p.id}" value="${p.estoque ?? -1}" class="form-control" style="width:70px;font-size:0.85rem;" placeholder="-1" title="Estoque" />
+      <div class="prod-campo" style="width:70px;">
+        <span class="prod-campo-label">Preço 🌟</span>
+        <input type="number" id="prod-preco-${p.id}" value="${p.preco}" class="form-control" style="width:100%;font-size:0.85rem;" step="0.5" min="1" />
+      </div>
+      <div class="prod-campo" style="width:70px;">
+        <span class="prod-campo-label">Estoque</span>
+        <input type="number" id="admin-prod-estoque-${p.id}" value="${p.estoque ?? -1}" class="form-control" style="width:100%;font-size:0.85rem;" placeholder="-1" title="Estoque" />
+      </div>
       <button class="btn btn-success btn-sm" style="width:auto;min-height:36px;padding:4px 10px;font-size:0.85rem;" onclick="editarProduto('${p.id}')" title="Salvar">💾</button>
       <button class="btn btn-danger btn-sm" style="width:auto;min-height:36px;padding:4px 12px;font-size:0.85rem;" onclick="deletarProduto('${p.id}')">✕</button>
     </div>
