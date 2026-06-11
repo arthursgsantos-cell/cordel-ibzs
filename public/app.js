@@ -166,6 +166,13 @@ async function fazerLogin() {
 
   if (!nome) { toast('Digite seu nome!', 'error'); return; }
 
+  // Se o campo PIN já está visível e preenchido, finalizar login com PIN
+  const pinWrap = document.getElementById('login-pin-wrap');
+  const pinVal  = document.getElementById('login-pin').value.trim();
+  if (perfil === 'cliente' && pinWrap.style.display === 'block' && pinVal.length === 4) {
+    return fazerLoginComPin();
+  }
+
   if (perfil !== 'cliente') {
     if (!codigo) { toast('Digite o código!', 'error'); return; }
 
