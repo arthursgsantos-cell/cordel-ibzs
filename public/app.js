@@ -727,7 +727,10 @@ let _ultimosPedidosIds = new Set();
 
 async function gerenteCarregarPedidos() {
   if (!estado.barracaId) return;
-  const pedidos = await api('/api/pedidos/pendentes/' + estado.barracaId);
+  const [pedidos, especieHoje] = await Promise.all([
+    api('/api/pedidos/pendentes/' + estado.barracaId),
+    api('/api/vendas/especie/' + estado.barracaId)
+  ]);
   const cont = document.getElementById('gerente-pedidos-lista');
 
   // ── Badge na aba ──────────────────────────────────────────────
@@ -812,6 +815,32 @@ async function gerenteCarregarPedidos() {
         </div>
       `;
     }).join('');
+
+  // Seção: Vendas em Espécie de Hoje
+  if (Array.isArray(especieHoje) && especieHoje.length > 0) {
+    const totalEspecie = especieHoje.reduce((s, t) => s + parseFloat(t.valor || 0), 0);
+    cont.innerHTML += `
+      <div style="margin-top:18px;border-top:2px dashed #C8A020;padding-top:12px;">
+        <div style="font-weight:700;color:#C8A020;font-size:0.95rem;margin-bottom:8px;">
+          🪙 Espécie hoje — ${especieHoje.length} venda(s) · ${totalEspecie} 🌟
+        </div>
+        ${especieHoje.map(t => {
+          let itens = [];
+          try { itens = JSON.parse(t.itens || '[]').filter(i => i.nome); } catch {}
+          const troco = itens[0]?._troco ?? 0;
+          return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #f5f0e0;font-size:0.88rem;">
+            <div style="color:#1E3A6E;">
+              <div>${itens.map(i => `${i.qty}x ${i.nome}`).join(', ') || '—'}</div>
+              <div style="font-size:0.78rem;color:#9aaccc;">${formatarHora(t.timestamp)}</div>
+            </div>
+            <div style="text-align:right;flex-shrink:0;">
+              <div style="font-weight:700;color:#C8A020;">${t.valor} 🌟</div>
+              ${troco > 0 ? `<div style="font-size:0.75rem;color:#16a34a;">troco: ${troco} 🌟</div>` : ''}
+            </div>
+          </div>`;
+        }).join('')}
+      </div>`;
+  }
 }
 
 async function gerenteCancelarPedido(pedidoId, nomeCliente) {

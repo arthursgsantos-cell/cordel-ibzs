@@ -1284,17 +1284,50 @@ app.get('/api/pedidos/cliente/:clienteId', async (req, res) => {
   res.json(data || []);
 });
 
-// Histórico de pedidos de uma barraca (todos, não só pendentes)
+// Histórico de pedidos de uma barraca (pedidos + vendas em espécie)
 app.get('/api/pedidos/historico/:barracaId', async (req, res) => {
   const limit = Math.min(parseInt(req.query.limit) || 50, 200);
+  const [pedRes, txRes] = await Promise.all([
+    supabase.from('pedidos').select('*, clientes(nome,codigo)')
+      .eq('barraca_id', req.params.barracaId)
+      .order('criado_em', { ascending: false }).limit(limit),
+    supabase.from('transacoes').select('id, timestamp, valor, itens, forma')
+      .eq('barraca_id', req.params.barracaId).eq('tipo', 'venda')
+      .order('timestamp', { ascending: false }).limit(limit)
+  ]);
+
+  // Inclui somente transações espécie (que não geram pedido)
+  const txEspecie = (txRes.data || []).filter(t => {
+    if (t.forma === 'especie') return true;
+    try { return JSON.parse(t.itens || '[]').some(i => i._forma === 'especie'); } catch { return false; }
+  }).map(t => ({
+    id: 'tx_' + t.id, criado_em: t.timestamp, valor_total: t.valor,
+    itens: t.itens, status: 'confirmado', _origem: 'especie', clientes: null
+  }));
+
+  const all = [...(pedRes.data || []), ...txEspecie]
+    .sort((a, b) => new Date(b.criado_em) - new Date(a.criado_em))
+    .slice(0, limit);
+  res.json(all);
+});
+
+// Vendas em espécie de hoje para uma barraca
+app.get('/api/vendas/especie/:barracaId', async (req, res) => {
+  const hojeInicio = new Date(); hojeInicio.setHours(0,0,0,0);
   const { data, error } = await supabase
-    .from('pedidos')
-    .select('*, clientes(nome,codigo)')
+    .from('transacoes')
+    .select('id, timestamp, valor, itens, forma')
     .eq('barraca_id', req.params.barracaId)
-    .order('criado_em', { ascending: false })
-    .limit(limit);
+    .eq('tipo', 'venda')
+    .gte('timestamp', hojeInicio.toISOString())
+    .order('timestamp', { ascending: false })
+    .limit(50);
   if (error) return res.status(500).json({ error: error.message });
-  res.json(data || []);
+  const especie = (data || []).filter(t => {
+    if (t.forma === 'especie') return true;
+    try { return JSON.parse(t.itens || '[]').some(i => i._forma === 'especie'); } catch { return false; }
+  });
+  res.json(especie);
 });
 
 // ── START ─────────────────────────────────────────────────────────────────────
