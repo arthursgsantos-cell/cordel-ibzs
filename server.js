@@ -822,13 +822,13 @@ app.post('/api/vendas/especie', async (req, res) => {
   const { data: tx, error } = await supabase.from('transacoes').insert(insert).select().single();
   if (error) return res.status(500).json({ error: error.message });
 
-  // Cria pedido como confirmado para aparecer no histórico da barraca
+  // Cria pedido pendente para aparecer na aba de Pedidos do gerente
   await supabase.from('pedidos').insert({
     barraca_id,
     cliente_id: null,
     itens: JSON.stringify(itens.map(i => ({ ...i, _forma: 'especie', _troco: troco }))),
     valor_total: valor,
-    status: 'confirmado'
+    status: 'pendente'
   });
 
   await decrementarEstoque(itens, barraca_id);
@@ -1284,31 +1284,15 @@ app.get('/api/pedidos/cliente/:clienteId', async (req, res) => {
   res.json(data || []);
 });
 
-// Histórico de pedidos de uma barraca (pedidos + vendas em espécie)
+// Histórico de pedidos de uma barraca (todos os status)
 app.get('/api/pedidos/historico/:barracaId', async (req, res) => {
   const limit = Math.min(parseInt(req.query.limit) || 50, 200);
-  const [pedRes, txRes] = await Promise.all([
-    supabase.from('pedidos').select('*, clientes(nome,codigo)')
-      .eq('barraca_id', req.params.barracaId)
-      .order('criado_em', { ascending: false }).limit(limit),
-    supabase.from('transacoes').select('id, timestamp, valor, itens, forma')
-      .eq('barraca_id', req.params.barracaId).eq('tipo', 'venda')
-      .order('timestamp', { ascending: false }).limit(limit)
-  ]);
-
-  // Inclui somente transações espécie (que não geram pedido)
-  const txEspecie = (txRes.data || []).filter(t => {
-    if (t.forma === 'especie') return true;
-    try { return JSON.parse(t.itens || '[]').some(i => i._forma === 'especie'); } catch { return false; }
-  }).map(t => ({
-    id: 'tx_' + t.id, criado_em: t.timestamp, valor_total: t.valor,
-    itens: t.itens, status: 'confirmado', _origem: 'especie', clientes: null
-  }));
-
-  const all = [...(pedRes.data || []), ...txEspecie]
-    .sort((a, b) => new Date(b.criado_em) - new Date(a.criado_em))
-    .slice(0, limit);
-  res.json(all);
+  const { data, error } = await supabase
+    .from('pedidos').select('*, clientes(nome,codigo)')
+    .eq('barraca_id', req.params.barracaId)
+    .order('criado_em', { ascending: false }).limit(limit);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data || []);
 });
 
 // Vendas em espécie de hoje para uma barraca
