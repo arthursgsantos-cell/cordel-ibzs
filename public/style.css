@@ -359,9 +359,19 @@ tr:hover td { background: #F5F8FF; }
 /* ── PEDIDO CARDS ── */
 .pedido-card {
   background: white; border: 3px solid #3A6EC8; border-radius: 14px;
-  padding: 16px; margin-bottom: 14px;
+  padding: 14px; margin-bottom: 12px;
   box-shadow: 0 2px 12px rgba(30,58,110,0.12);
-  animation: pedidoPulsar 2s ease-in-out infinite;
+  transition: border-color 0.4s;
+}
+.pedido-aviso  { border-color: #d97706 !important; background: #fffbeb; }
+.pedido-alerta { border-color: #ea580c !important; background: #fff7ed; }
+.pedido-urgente {
+  border-color: #dc2626 !important; background: #fff5f5;
+  animation: pedidoUrgente 1.2s ease-in-out infinite;
+}
+@keyframes pedidoUrgente {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(220,38,38,0.3); }
+  50%       { box-shadow: 0 0 0 6px rgba(220,38,38,0); }
 }
 @keyframes pedidoPulsar {
   0%, 100% { border-color: #3A6EC8; }

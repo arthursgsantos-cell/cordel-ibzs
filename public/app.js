@@ -774,26 +774,40 @@ async function gerenteCarregarPedidos() {
     cont.innerHTML = '<p style="color:#16a34a;text-align:center;padding:16px;">🎉 Nenhum pedido pendente! Aproveite!</p>';
     return;
   }
-  cont.innerHTML = '<div style="margin-bottom:8px;font-weight:700;color:#E8458C;font-size:1rem;">🕐 ' + pedidos.length + ' pedido(s) pendente(s)</div>' +
+
+  const agora = Date.now();
+  const maiorEspera = Math.max(...pedidos.map(p => Math.floor((agora - new Date(p.criado_em)) / 60000)));
+
+  cont.innerHTML =
+    `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:6px;">
+      <div style="font-weight:700;color:#E8458C;font-size:1rem;">🕐 ${pedidos.length} pedido(s) em espera</div>
+      <div style="font-size:0.82rem;color:${maiorEspera>=15?'#dc2626':maiorEspera>=8?'#ea580c':'#3A6EC8'};font-weight:600;">
+        Maior espera: ${maiorEspera}min
+      </div>
+    </div>` +
     pedidos.map(p => {
       let itens = [];
       try { itens = JSON.parse(p.itens || '[]'); } catch {}
+      const waitMin = Math.floor((agora - new Date(p.criado_em)) / 60000);
+      const urgClass = waitMin >= 20 ? 'pedido-urgente' : waitMin >= 10 ? 'pedido-alerta' : waitMin >= 5 ? 'pedido-aviso' : '';
+      const waitLabel = waitMin < 1 ? 'agora' : `${waitMin}min`;
+      const waitCor = waitMin >= 20 ? '#dc2626' : waitMin >= 10 ? '#ea580c' : waitMin >= 5 ? '#d97706' : '#16a34a';
       return `
-        <div class="pedido-card">
+        <div class="pedido-card ${urgClass}">
           <div class="pedido-header">
-            <div>
+            <div style="flex:1;min-width:0;">
               <div style="font-weight:700;color:#1E3A6E;font-size:1rem;">${p.clientes ? p.clientes.nome : 'Cliente'}</div>
-              <div style="font-size:0.82rem;color:#3A6EC8;">${formatarHora(p.criado_em)} · ${itens.length} item(s)</div>
+              <div style="font-size:0.82rem;color:#3A6EC8;">${formatarHora(p.criado_em)}</div>
             </div>
-            <div style="text-align:right;">
-              <div style="font-size:1.3rem;font-weight:700;color:#C8A020;">${p.valor_total ?? p.valor ?? '?'} 🌟</div>
+            <div style="text-align:right;flex-shrink:0;">
+              <div style="font-size:1.1rem;font-weight:700;color:${waitCor};white-space:nowrap;">⏱ ${waitLabel}</div>
+              <div style="font-size:1rem;font-weight:700;color:#C8A020;">${p.valor_total ?? '?'} 🌟</div>
             </div>
           </div>
           <div class="pedido-itens">${itens.map(i => `<span class="pedido-item-tag">${i.qty}x ${i.nome}</span>`).join('')}</div>
-          <div style="margin-top:10px;font-size:0.85rem;color:#16a34a;font-weight:600;">💰 <span style="color:#1E3A6E;">Valor já debitado do cliente</span></div>
           <div style="display:flex;gap:8px;margin-top:12px;">
-            <button class="btn btn-success btn-sm" style="flex:2;" onclick="gerenteConfirmarPedido('${p.id}')">✅ Confirmar Entrega</button>
-            <button class="btn btn-danger btn-sm" style="flex:1;" onclick="gerenteCancelarPedido('${p.id}','${(p.clientes?.nome||'').replace(/'/g,"\\'")}')">✖ Cancelar</button>
+            <button class="btn btn-success btn-sm" style="flex:2;" onclick="gerenteConfirmarPedido('${p.id}')">✅ Confirmar</button>
+            <button class="btn btn-danger btn-sm" style="flex:1;" onclick="gerenteCancelarPedido('${p.id}','${(p.clientes?.nome||'').replace(/'/g,"\\'")}')">✖</button>
           </div>
         </div>
       `;
@@ -1539,6 +1553,78 @@ function abrirTabAdmin(ev, tab) {
   if (tab === 'log') carregarLogAdmin();
   if (tab === 'transacoes') filtrarTransacoes();
   if (tab === 'senhas') carregarSenhas();
+  if (tab === 'monitor') iniciarMonitorPedidos();
+  else pararMonitorPedidos();
+}
+
+let _monitorTimer = null;
+
+function pararMonitorPedidos() {
+  clearInterval(_monitorTimer);
+  _monitorTimer = null;
+}
+
+function iniciarMonitorPedidos() {
+  carregarMonitorPedidos();
+  clearInterval(_monitorTimer);
+  _monitorTimer = setInterval(carregarMonitorPedidos, 30000);
+}
+
+async function carregarMonitorPedidos() {
+  const r = await api('/api/admin/pedidos-monitor');
+  if (!r || r.error) return;
+
+  const urgCor = m => m >= 20 ? '#dc2626' : m >= 10 ? '#ea580c' : m >= 5 ? '#d97706' : '#16a34a';
+  const urgLabel = m => m >= 20 ? '🔴' : m >= 10 ? '🟠' : m >= 5 ? '🟡' : '🟢';
+
+  document.getElementById('admin-monitor-resumo').innerHTML = `
+    <div class="kpi-card"><div class="kpi-valor" style="color:${r.total_pendentes>0?'#E8458C':'#16a34a'}">${r.total_pendentes}</div><div class="kpi-label">Em espera agora</div></div>
+    <div class="kpi-card"><div class="kpi-valor" style="color:${urgCor(r.espera_max_geral)}">${r.espera_max_geral}min</div><div class="kpi-label">Maior espera</div></div>
+  `;
+
+  const barracas = r.barracas || [];
+  if (!barracas.length) {
+    document.getElementById('admin-monitor-barracas').innerHTML = '<p style="text-align:center;color:#3A6EC8;padding:20px;">Nenhuma barraca ativa.</p>';
+    return;
+  }
+
+  document.getElementById('admin-monitor-barracas').innerHTML = barracas.map(b => {
+    const semPedidos = b.num_pendentes === 0;
+    const bordaCor = semPedidos ? '#4ade80' : urgCor(b.espera_max_min);
+    const pedidosHtml = b.pendentes.slice(0, 5).map(p => {
+      const wCor = urgCor(p.wait_min);
+      return `<div style="display:flex;justify-content:space-between;font-size:0.8rem;padding:4px 0;border-bottom:1px solid #f0f0f0;">
+        <span style="color:#1E3A6E;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:55%;">${p.cliente}</span>
+        <span style="font-weight:700;color:${wCor};white-space:nowrap;">⏱ ${p.wait_min < 1 ? 'agora' : p.wait_min + 'min'} · ${p.valor ?? '?'} 🌟</span>
+      </div>`;
+    }).join('');
+    const maisHtml = b.pendentes.length > 5
+      ? `<div style="font-size:0.78rem;color:#9aaccc;text-align:center;padding-top:4px;">+ ${b.pendentes.length - 5} mais...</div>` : '';
+
+    return `
+      <div class="card" style="border-left:5px solid ${bordaCor};margin-bottom:10px;padding:12px 14px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:4px;">
+          <div style="font-size:1rem;font-weight:700;color:#1E3A6E;">${b.emoji} ${b.nome}</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-shrink:0;">
+            ${semPedidos
+              ? `<span style="font-size:0.82rem;color:#16a34a;font-weight:700;">✅ Livre</span>`
+              : `<span style="font-weight:700;color:${bordaCor};font-size:1rem;">${urgLabel(b.espera_max_min)} ${b.num_pendentes} pedido${b.num_pendentes>1?'s':''}</span>`
+            }
+          </div>
+        </div>
+        ${!semPedidos ? `
+          <div style="display:flex;gap:12px;font-size:0.8rem;color:#3A6EC8;margin-bottom:8px;flex-wrap:wrap;">
+            <span>Espera máx: <strong style="color:${urgCor(b.espera_max_min)}">${b.espera_max_min}min</strong></span>
+            <span>Espera média: <strong style="color:${urgCor(b.espera_media_min)}">${b.espera_media_min}min</strong></span>
+            <span>Confirmados hoje: <strong style="color:#16a34a">${b.confirmados_hoje}</strong></span>
+          </div>
+          <div>${pedidosHtml}${maisHtml}</div>
+        ` : `<div style="font-size:0.82rem;color:#9aaccc;">${b.confirmados_hoje} pedidos confirmados hoje</div>`}
+      </div>`;
+  }).join('');
+
+  const ts = new Date(r.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  document.getElementById('admin-monitor-ts').textContent = `Atualizado às ${ts} · próximo em 30s`;
 }
 
 // ── ADMIN: GERENCIAR SENHAS ─────────────────────────────────────

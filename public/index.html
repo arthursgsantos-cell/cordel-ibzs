@@ -530,6 +530,7 @@
       <button class="tab-btn" onclick="abrirTabAdmin(event,'barracas')">🏪 Barracas</button>
       <button class="tab-btn" onclick="abrirTabAdmin(event,'clientes')">👥 Clientes</button>
       <button class="tab-btn" onclick="abrirTabAdmin(event,'transacoes')">📋 Transações</button>
+      <button class="tab-btn" onclick="abrirTabAdmin(event,'monitor')">🚦 Pedidos</button>
       <button class="tab-btn" onclick="abrirTabAdmin(event,'senhas')">🔑 Senhas</button>
     </div>
 
@@ -612,6 +613,13 @@
           </table>
         </div>
       </div>
+    </div>
+
+    <!-- ABA MONITOR DE PEDIDOS -->
+    <div id="tab-admin-monitor" class="tab-content">
+      <div id="admin-monitor-resumo" class="kpi-grid" style="margin-bottom:12px;"></div>
+      <div id="admin-monitor-barracas"></div>
+      <p id="admin-monitor-ts" style="text-align:center;font-size:0.75rem;color:#9aaccc;margin-top:8px;"></p>
     </div>
 
     <!-- ABA TRANSAÇÕES -->

@@ -1317,6 +1317,57 @@ app.listen(PORT, async () => {
   await formaColunaExiste(); // loga aviso se migração v2 ainda não foi rodada
 });
 
+// ── ADMIN: MONITOR DE PEDIDOS ────────────────────────────────────────────────
+app.get('/api/admin/pedidos-monitor', async (req, res) => {
+  const agora = new Date();
+  const hojeInicio = new Date(); hojeInicio.setHours(0,0,0,0);
+
+  const [pendRes, confRes, barsRes] = await Promise.all([
+    supabase.from('pedidos')
+      .select('id, criado_em, valor_total, itens, barraca_id, barracas(nome,emoji), clientes(nome)')
+      .eq('status', 'pendente')
+      .order('criado_em', { ascending: true }),
+    supabase.from('pedidos')
+      .select('id, barraca_id')
+      .eq('status', 'confirmado')
+      .gte('criado_em', hojeInicio.toISOString()),
+    supabase.from('barracas').select('id,nome,emoji').eq('ativa', true)
+  ]);
+
+  const pend = pendRes.data || [];
+  const conf = confRes.data || [];
+  const bars = barsRes.data || [];
+
+  const porBarraca = {};
+  bars.forEach(b => {
+    porBarraca[b.id] = { id: b.id, nome: b.nome, emoji: b.emoji, pendentes: [], confirmados_hoje: 0 };
+  });
+
+  pend.forEach(p => {
+    const wait = Math.floor((agora - new Date(p.criado_em)) / 60000);
+    if (!porBarraca[p.barraca_id]) {
+      porBarraca[p.barraca_id] = { id: p.barraca_id, nome: p.barracas?.nome || '?', emoji: p.barracas?.emoji || '🏪', pendentes: [], confirmados_hoje: 0 };
+    }
+    porBarraca[p.barraca_id].pendentes.push({ id: p.id, wait_min: wait, cliente: p.clientes?.nome || '—', valor: p.valor_total, criado_em: p.criado_em });
+  });
+
+  conf.forEach(p => { if (porBarraca[p.barraca_id]) porBarraca[p.barraca_id].confirmados_hoje++; });
+
+  const barracasArr = Object.values(porBarraca).map(b => {
+    const esperas = b.pendentes.map(p => p.wait_min);
+    return { ...b, num_pendentes: b.pendentes.length,
+      espera_max_min: esperas.length ? Math.max(...esperas) : 0,
+      espera_media_min: esperas.length ? Math.round(esperas.reduce((s,v) => s+v, 0) / esperas.length) : 0 };
+  }).sort((a, b) => b.espera_max_min - a.espera_max_min);
+
+  res.json({
+    barracas: barracasArr,
+    total_pendentes: pend.length,
+    espera_max_geral: pend.length ? Math.max(...pend.map(p => Math.floor((agora - new Date(p.criado_em))/60000))) : 0,
+    timestamp: agora.toISOString()
+  });
+});
+
 // ── ADMIN: LOG DE ATIVIDADES ─────────────────────────────────────────────────
 app.get('/api/admin/log', async (req, res) => {
   const { limit } = req.query;
