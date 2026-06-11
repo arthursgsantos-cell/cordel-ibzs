@@ -776,19 +776,21 @@ async function gerenteCarregarPedidos() {
   }
 
   const agora = Date.now();
-  const maiorEspera = Math.max(...pedidos.map(p => Math.floor((agora - new Date(p.criado_em)) / 60000)));
+  const esperas = pedidos.map(p => Math.max(0, Math.floor((agora - new Date(p.criado_em)) / 60000)));
+  const tempoMedio = Math.round(esperas.reduce((s, v) => s + v, 0) / esperas.length);
+  const mediaCor = tempoMedio >= 15 ? '#dc2626' : tempoMedio >= 8 ? '#ea580c' : '#3A6EC8';
 
   cont.innerHTML =
     `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:6px;">
       <div style="font-weight:700;color:#E8458C;font-size:1rem;">🕐 ${pedidos.length} pedido(s) em espera</div>
-      <div style="font-size:0.82rem;color:${maiorEspera>=15?'#dc2626':maiorEspera>=8?'#ea580c':'#3A6EC8'};font-weight:600;">
-        Maior espera: ${maiorEspera}min
+      <div style="font-size:0.82rem;color:${mediaCor};font-weight:600;">
+        Espera média: ${tempoMedio}min
       </div>
     </div>` +
-    pedidos.map(p => {
+    pedidos.map((p, idx) => {
       let itens = [];
       try { itens = JSON.parse(p.itens || '[]'); } catch {}
-      const waitMin = Math.floor((agora - new Date(p.criado_em)) / 60000);
+      const waitMin = esperas[idx];
       const urgClass = waitMin >= 20 ? 'pedido-urgente' : waitMin >= 10 ? 'pedido-alerta' : waitMin >= 5 ? 'pedido-aviso' : '';
       const waitLabel = waitMin < 1 ? 'agora' : `${waitMin}min`;
       const waitCor = waitMin >= 20 ? '#dc2626' : waitMin >= 10 ? '#ea580c' : waitMin >= 5 ? '#d97706' : '#16a34a';
