@@ -211,6 +211,81 @@ function hashPin(pin) {
   return crypto.createHash('sha256').update(pin).digest('hex');
 }
 
+// ── CONFIG / SENHAS (admin e caixa) ──────────────────────────────────────────
+// Senhas ficam na tabela "config" do Supabase. Se a tabela ainda não existir
+// (migração não rodada), cai no padrão hardcoded — o app continua funcionando.
+const SENHAS_PADRAO = { admin: '9999', caixa: '5678' };
+
+let _configTabelaExiste = null;
+async function configTabelaExiste() {
+  if (_configTabelaExiste !== null) return _configTabelaExiste;
+  const { error } = await supabase.from('config').select('chave').limit(1);
+  _configTabelaExiste = !error;
+  if (!_configTabelaExiste) {
+    console.warn('⚠️  Tabela "config" não existe. Rode supabase_migration_v2.sql para gerenciar senhas.');
+  } else {
+    console.log('✅ Tabela "config" detectada — senhas gerenciáveis pelo admin.');
+  }
+  return _configTabelaExiste;
+}
+
+async function getSenha(perfil) {
+  if (!SENHAS_PADRAO[perfil]) return null;
+  if (await configTabelaExiste()) {
+    const { data } = await supabase.from('config').select('valor').eq('chave', 'senha_' + perfil).maybeSingle();
+    if (data && data.valor) return data.valor;
+  }
+  return SENHAS_PADRAO[perfil];
+}
+
+async function seedConfigSenhas() {
+  if (!await configTabelaExiste()) return;
+  for (const perfil of ['admin', 'caixa']) {
+    const { data } = await supabase.from('config').select('chave').eq('chave', 'senha_' + perfil).maybeSingle();
+    if (!data) await supabase.from('config').insert({ chave: 'senha_' + perfil, valor: SENHAS_PADRAO[perfil] });
+  }
+}
+
+// Login de caixa/admin validado no servidor (antes era hardcoded no frontend)
+app.post('/api/auth/perfil', async (req, res) => {
+  const { perfil, codigo } = req.body;
+  if (!['admin', 'caixa'].includes(perfil)) return res.status(400).json({ error: 'Perfil inválido' });
+  if (!codigo) return res.status(400).json({ error: 'Código obrigatório' });
+  const senha = await getSenha(perfil);
+  if (String(codigo).trim() !== senha) return res.status(401).json({ error: 'Código incorreto!' });
+  res.json({ ok: true, perfil });
+});
+
+app.get('/api/admin/senhas', async (req, res) => {
+  res.json({
+    admin: await getSenha('admin'),
+    caixa: await getSenha('caixa'),
+    persistido: await configTabelaExiste(),
+  });
+});
+
+app.put('/api/admin/senhas', async (req, res) => {
+  const { perfil, senha } = req.body;
+  if (!['admin', 'caixa'].includes(perfil)) return res.status(400).json({ error: 'Perfil inválido' });
+  if (!/^\d{4,8}$/.test(String(senha || ''))) return res.status(400).json({ error: 'Senha deve ter de 4 a 8 dígitos numéricos' });
+  if (!await configTabelaExiste()) {
+    return res.status(503).json({ error: 'Tabela "config" não existe. Rode o SQL de migração (supabase_migration_v2.sql) no Supabase.' });
+  }
+  const outroPerfil = perfil === 'admin' ? 'caixa' : 'admin';
+  if (String(senha) === await getSenha(outroPerfil)) {
+    return res.status(409).json({ error: `Senha já usada pelo perfil ${outroPerfil}` });
+  }
+  // não pode colidir com código de gerente de barraca
+  if (await codigoColunaExiste()) {
+    const { data: barracaComCodigo } = await supabase.from('barracas').select('id,nome').eq('codigo', String(senha)).maybeSingle();
+    if (barracaComCodigo) return res.status(409).json({ error: `Código já usado pela barraca "${barracaComCodigo.nome}"` });
+  }
+  const { error } = await supabase.from('config').upsert({ chave: 'senha_' + perfil, valor: String(senha), atualizado_em: new Date().toISOString() });
+  if (error) return res.status(500).json({ error: error.message });
+  await logAtividade('editar', 'senha', null, { perfil }, 'admin', 'Admin', false);
+  res.json({ ok: true });
+});
+
 app.get('/api/clientes/:id', async (req, res) => {
   const { data, error } = await supabase.from('clientes').select('*').eq('id', req.params.id).single();
   if (error) return res.status(404).json({ error: 'Cliente não encontrado' });
@@ -293,12 +368,14 @@ app.post('/api/clientes/:id/recarregar', async (req, res) => {
     .from('clientes').update({ saldo: novoSaldo }).eq('id', req.params.id);
   if (ue) return res.status(500).json({ error: ue.message });
 
-  await supabase.from('transacoes').insert({
+  const txRecarga = {
     tipo: 'recarga',
     cliente_id: req.params.id,
     valor: v,
     itens: JSON.stringify({ forma: forma || 'dinheiro' })
-  });
+  };
+  if (await formaColunaExiste()) txRecarga.forma = forma || 'dinheiro';
+  await supabase.from('transacoes').insert(txRecarga);
 
   res.json({ saldo: novoSaldo });
 });
@@ -349,9 +426,10 @@ async function codigoColunaExiste() {
 async function gerarCodigoUnico() {
   if (!await codigoColunaExiste()) throw new Error('Coluna "codigo" não existe. Rode o SQL de migração no Supabase Dashboard.');
   let tentativas = 0;
+  const reservados = [await getSenha('caixa'), await getSenha('admin')];
   while (tentativas < 20) {
     const codigo = String(Math.floor(1000 + Math.random() * 9000));
-    if (['5678', '9999'].includes(codigo)) { tentativas++; continue; }
+    if (reservados.includes(codigo)) { tentativas++; continue; }
     const { data } = await supabase.from('barracas').select('id').eq('codigo', codigo).maybeSingle();
     if (!data) return codigo;
     tentativas++;
@@ -417,7 +495,8 @@ app.put('/api/barracas/:id', async (req, res) => {
     const c = codigo.trim();
     if (c) {
       if (!/^\d{4,6}$/.test(c)) return res.status(400).json({ error: 'Código deve ter 4 a 6 dígitos numéricos' });
-      if (['5678', '9999'].includes(c)) return res.status(400).json({ error: 'Código reservado pelo sistema' });
+      const reservados = [await getSenha('caixa'), await getSenha('admin')];
+      if (reservados.includes(c)) return res.status(400).json({ error: 'Código reservado pelo sistema' });
       const { data: existente } = await supabase.from('barracas').select('id').eq('codigo', c).maybeSingle();
       if (existente && existente.id !== req.params.id) return res.status(409).json({ error: 'Código já em uso por outra barraca' });
       updates.codigo = c;
@@ -470,8 +549,9 @@ app.get('/api/admin/transacoes', async (req, res) => {
   const filtroPedido = tipo === 'pedido';
   const filtroRecarga = tipo === 'recarga';
   const filtroQR = tipo === 'qr';
+  const filtroEspecie = tipo === 'especie';
   if (filtroRecarga) txQuery = txQuery.eq('tipo', 'recarga');
-  else if (filtroQR)  txQuery = txQuery.eq('tipo', 'venda');
+  else if (filtroQR || filtroEspecie) txQuery = txQuery.eq('tipo', 'venda');
   else if (!filtroPedido && tipo) txQuery = txQuery.eq('tipo', tipo);
   if (cliente_id) txQuery = txQuery.eq('cliente_id', cliente_id);
 
@@ -490,13 +570,17 @@ app.get('/api/admin/transacoes', async (req, res) => {
 
   const [txRes, pedRes] = await Promise.all([
     filtroPedido ? { data: [] } : txQuery,
-    filtroRecarga || filtroQR ? { data: [] } : pedQuery,
+    filtroRecarga || filtroQR || filtroEspecie ? { data: [] } : pedQuery,
   ]);
 
   const txData = (txRes.data || []).map(t => {
-    let forma = null;
-    try { const parsed = JSON.parse(t.itens || '{}'); forma = parsed.forma || null; } catch {}
-    return { ...t, _origem: t.tipo === 'recarga' ? 'recarga' : 'qr', forma, timestamp: t.timestamp };
+    let forma = t.forma || null;
+    try {
+      const parsed = JSON.parse(t.itens || '{}');
+      if (!forma) forma = Array.isArray(parsed) ? (parsed[0]?._forma || null) : (parsed.forma || null);
+    } catch {}
+    const origemVenda = forma === 'especie' ? 'especie' : 'qr';
+    return { ...t, _origem: t.tipo === 'recarga' ? 'recarga' : origemVenda, forma, timestamp: t.timestamp };
   });
 
   const pedData = (pedRes.data || []).map(p => ({
@@ -511,6 +595,9 @@ app.get('/api/admin/transacoes', async (req, res) => {
   let unified = [...txData, ...pedData]
     .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
     .slice(0, lim);
+
+  if (filtroQR)      unified = unified.filter(t => t._origem === 'qr');
+  if (filtroEspecie) unified = unified.filter(t => t._origem === 'especie');
 
   if (cliente_nome) {
     const q = cliente_nome.toLowerCase();
@@ -673,13 +760,15 @@ app.post('/api/comprar', async (req, res) => {
 
   await supabase.from('qr_pendentes').update({ confirmado: true }).eq('id', qr_id);
 
-  await supabase.from('transacoes').insert({
+  const txVenda = {
     tipo: 'venda',
     cliente_id,
     barraca_id: qr.barraca_id,
     valor,
     itens: qr.itens
-  });
+  };
+  if (await formaColunaExiste()) txVenda.forma = 'qr';
+  await supabase.from('transacoes').insert(txVenda);
 
   const { data: pedido } = await supabase
     .from('pedidos')
@@ -698,6 +787,46 @@ app.post('/api/comprar', async (req, res) => {
   await decrementarEstoque(itensQR, qr.barraca_id);
 
   res.json({ ok: true, saldo: novoSaldo, valor, pedido_id: pedido?.id });
+});
+
+// ── VENDA EM ESPÉCIE (gerente recebe Alegrias físicas na barraca) ─────────────
+
+// Flag: detecta se a coluna 'forma' já foi criada em transacoes
+let _formaColunaExiste = null;
+async function formaColunaExiste() {
+  if (_formaColunaExiste !== null) return _formaColunaExiste;
+  const { error } = await supabase.from('transacoes').select('forma').limit(1);
+  _formaColunaExiste = !error || !error.message.includes('forma');
+  if (!_formaColunaExiste) {
+    console.warn('⚠️  Coluna "forma" não existe em transacoes. Rode supabase_migration_v2.sql.');
+  } else {
+    console.log('✅ Coluna "forma" detectada em transacoes.');
+  }
+  return _formaColunaExiste;
+}
+
+app.post('/api/vendas/especie', async (req, res) => {
+  const { barraca_id, itens } = req.body;
+  if (!barraca_id || !Array.isArray(itens) || !itens.length) {
+    return res.status(400).json({ error: 'Dados incompletos' });
+  }
+  const valor = itens.reduce((s, i) => s + (parseFloat(i.preco) * (parseInt(i.qty) || 1)), 0);
+  if (!valor || valor <= 0) return res.status(400).json({ error: 'Valor inválido' });
+
+  const insert = { tipo: 'venda', barraca_id, valor, itens: JSON.stringify(itens) };
+  if (await formaColunaExiste()) {
+    insert.forma = 'especie';
+  } else {
+    // Fallback sem migração: marca a forma no primeiro item (mesmo padrão do _motivo)
+    const marcados = itens.map((i, idx) => idx === 0 ? { ...i, _forma: 'especie' } : i);
+    insert.itens = JSON.stringify(marcados);
+  }
+
+  const { data: tx, error } = await supabase.from('transacoes').insert(insert).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+
+  await decrementarEstoque(itens, barraca_id);
+  res.status(201).json({ ok: true, valor, transacao_id: tx.id });
 });
 
 // ── TRANSAÇÕES ────────────────────────────────────────────────────────────────
@@ -1175,9 +1304,11 @@ async function logAtividade(acao, entidade, entidadeId, detalhes, perfil, perfil
 }
 
 app.listen(PORT, async () => {
-  console.log(`Alegrias rodando em http://localhost:${PORT}`);
+  console.log(`AI - Alegria Inteligente rodando em http://localhost:${PORT}`);
   await seedProdutosSeVazio();
   await seedCodigosBarracas();
+  await seedConfigSenhas();
+  await formaColunaExiste(); // loga aviso se migração v2 ainda não foi rodada
 });
 
 // ── ADMIN: LOG DE ATIVIDADES ─────────────────────────────────────────────────

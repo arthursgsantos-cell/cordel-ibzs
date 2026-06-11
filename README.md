@@ -1,4 +1,4 @@
-# 🎪 Alegrias – Sistema de Moeda Digital  
+# 🎪 AI - Alegria Inteligente – Sistema de Moeda Digital  
 **Cordel 2026 · Igreja Batista Zona Sul**
 
 ---
@@ -75,10 +75,34 @@ O sistema detecta automaticamente. Se não existir, exibe emojis 🎪🎭🎨.
 
 | Perfil   | Código | Como acessar |
 |----------|--------|-------------|
-| Cliente  | sem código | Qualquer pessoa pelo nome |
-| Gerente  | `2024` | Dropdown "Gerente de Barraca" |
-| Caixa    | `5678` | Dropdown "Caixa" |
-| Admin    | `9999` | Link invisível no rodapé (clique no ponto `.`) |
+| Cliente  | sem código (PIN próprio de 4 dígitos) | Qualquer pessoa pelo nome |
+| Gerente  | código individual por barraca | Dropdown "Gerente de Barraca" |
+| Caixa    | gerenciável na aba 🔑 Senhas do Admin (padrão `5678`) | Dropdown "Caixa" |
+| Admin    | gerenciável na aba 🔑 Senhas do Admin (padrão `9999`) | Botão "Admin" no rodapé |
+
+> 🔑 As senhas de **Caixa** e **Admin** ficam na tabela `config` do Supabase e
+> podem ser alteradas em **Admin → 🔑 Senhas**. Se a tabela não existir, o
+> sistema usa os padrões acima (rode `supabase_migration_v2.sql` para ativar).
+
+---
+
+## 🔄 Migração v2 (junho/2026)
+
+Execute `supabase_migration_v2.sql` no **SQL Editor** do Supabase. Ele cria:
+- Tabela `config` (senhas de admin/caixa gerenciáveis pelo app)
+- Coluna `forma` em `transacoes` (`qr`, `especie`, `dinheiro`, `pix`, `cartao`)
+
+O deploy funciona mesmo **sem** a migração (o servidor detecta e usa fallback),
+mas a troca de senhas só funciona depois de rodar o SQL.
+
+---
+
+## 🪙 Venda em espécie (Alegrias físicas)
+
+Na aba **Vender** do gerente há duas formas de recebimento:
+- **📲 QR Code** – debita o saldo digital do cliente
+- **🪙 Espécie** – o gerente recebe Alegrias físicas (papel) e registra a venda
+  sem debitar saldo de nenhum cliente. Aparece nos relatórios como "Espécie".
 
 ---
 

@@ -25,7 +25,8 @@ let estado = {
   gerentePedidosTimer: null,
 };
 
-const CODIGOS = { gerente: '2024', caixa: '5678', admin: '9999' };
+// Senhas de caixa/admin agora são validadas no servidor (tabela config do Supabase)
+// e gerenciadas na aba 🔑 Senhas do Admin.
 
 // ── PRODutos por barraca (cardápio oficial do evento) ──────────────
 const PRODUTOS = {
@@ -46,10 +47,37 @@ const PRODUTOS = {
 //  INICIALIZAÇÃO
 // ═══════════════════════════════════════════════════════════════════
 window.addEventListener('DOMContentLoaded', () => {
+  iniciarSplash();
   renderLogoTodas();
   atualizarFormLogin();
   restaurarSessao();
 });
+
+// ── Splash (logomarca animada ao abrir/atualizar o app) ───────────
+function iniciarSplash() {
+  const splash = document.getElementById('splash');
+  if (!splash) return;
+  setTimeout(() => {
+    splash.classList.add('splash-out');
+    setTimeout(() => splash.remove(), 650);
+  }, 1700);
+}
+
+// ── Chuva de moedas (animação de venda/compra) ────────────────────
+function chuvaDeMoedas(qtd = 20) {
+  const simbolos = ['🪙', '⭐', '🌟', '🪙'];
+  for (let i = 0; i < qtd; i++) {
+    const moeda = document.createElement('span');
+    moeda.className = 'moeda-anim';
+    moeda.textContent = simbolos[Math.floor(Math.random() * simbolos.length)];
+    moeda.style.left = (Math.random() * 96) + 'vw';
+    moeda.style.animationDelay = (Math.random() * 0.5) + 's';
+    moeda.style.animationDuration = (1.2 + Math.random() * 1.2) + 's';
+    moeda.style.fontSize = (1.2 + Math.random() * 1.5) + 'rem';
+    document.body.appendChild(moeda);
+    setTimeout(() => moeda.remove(), 3400);
+  }
+}
 
 // ── Sessão persistente ─────────────────────────────────────────────
 const SESSAO_KEY = 'alegrias_sessao';
@@ -154,8 +182,9 @@ async function fazerLogin() {
       return;
     }
 
-    // Caixa e Admin: código fixo do sistema
-    if (codigo !== CODIGOS[perfil]) { toast('Código incorreto!', 'error'); return; }
+    // Caixa e Admin: senha validada no servidor
+    const auth = await api('/api/auth/perfil', 'POST', { perfil, codigo });
+    if (!auth.ok) { toast(auth.error || 'Código incorreto!', 'error'); return; }
     estado.perfil = perfil;
     mostrarTela('screen-' + perfil);
     salvarSessao();
@@ -290,9 +319,10 @@ function fecharModalAdmin() {
   document.getElementById('modal-admin').classList.add('hidden');
 }
 
-function confirmarAdmin() {
+async function confirmarAdmin() {
   const codigo = document.getElementById('admin-codigo-input').value.trim();
-  if (codigo !== CODIGOS.admin) { toast('Código incorreto!', 'error'); return; }
+  const auth = await api('/api/auth/perfil', 'POST', { perfil: 'admin', codigo });
+  if (!auth.ok) { toast(auth.error || 'Código incorreto!', 'error'); return; }
   fecharModalAdmin();
   estado.perfil = 'admin';
   mostrarTela('screen-admin');
@@ -575,12 +605,49 @@ function iniciarPollQR(qrId, total) {
       clearInterval(estado.qrPollTimer);
       document.getElementById('modal-qr-aguarda').style.display = 'none';
       document.getElementById('modal-qr-ok').style.display = 'block';
+      chuvaDeMoedas();
       toast('✅ Venda confirmada! ' + total + ' Alegrias', 'success');
       estado.carrinho.forEach(i => i.qty = 0);
       document.querySelectorAll('.qty-num').forEach(el => el.textContent = '0');
       renderCarrinho();
     }
   }, 3000);
+}
+
+// ── GERENTE: VENDA EM ESPÉCIE (Alegrias físicas) ──────────────────
+function abrirVendaEspecie() {
+  const itens = estado.carrinho.filter(i => i.qty > 0);
+  if (!itens.length) { toast('Adicione itens ao carrinho!', 'error'); return; }
+  if (!estado.barracaId) { toast('Selecione a barraca!', 'error'); return; }
+  const total = itens.reduce((s, i) => s + i.preco * i.qty, 0);
+  document.getElementById('venda-especie-itens').innerHTML = itens.map(i => `
+    <div class="carrinho-item"><span>${i.qty}x ${i.nome}</span><span>${i.preco * i.qty} 🌟</span></div>
+  `).join('');
+  document.getElementById('venda-especie-total').textContent = `Total: ${total} Alegrias 🌟`;
+  document.getElementById('modal-venda-especie').classList.remove('hidden');
+}
+
+function fecharModalVendaEspecie() {
+  document.getElementById('modal-venda-especie').classList.add('hidden');
+}
+
+async function confirmarVendaEspecie() {
+  const itens = estado.carrinho.filter(i => i.qty > 0);
+  if (!itens.length) { fecharModalVendaEspecie(); return; }
+  const res = await api('/api/vendas/especie', 'POST', {
+    barraca_id: estado.barracaId,
+    itens: itens.map(i => ({ id: i.id, nome: i.nome, preco: i.preco, qty: i.qty }))
+  });
+  if (res.ok) {
+    fecharModalVendaEspecie();
+    chuvaDeMoedas();
+    toast(`✅ Venda em espécie registrada! ${res.valor} Alegrias`, 'success');
+    estado.carrinho.forEach(i => i.qty = 0);
+    renderCarrinho();
+    await renderProdutos(estado.barracaId); // atualiza estoque exibido
+  } else {
+    toast(res.error || 'Erro ao registrar venda!', 'error');
+  }
 }
 
 function fecharModalQR() {
@@ -745,7 +812,7 @@ async function carregarRelatorioBarraca() {
   cont.innerHTML = r.vendas.slice(0, 20).map(v => `
     <div class="hist-item">
       <div class="hist-info">
-        <div class="hist-barraca">${v.clientes ? v.clientes.nome : 'Cliente'}</div>
+        <div class="hist-barraca">${v.clientes ? v.clientes.nome : '🪙 Venda em espécie'}</div>
         <div class="hist-hora">${formatarHora(v.timestamp)}</div>
       </div>
       <div class="hist-valor">−${v.valor} 🌟</div>
@@ -889,6 +956,7 @@ async function confirmarRecarga(forma) {
 
   const res = await api('/api/clientes/' + estado.caixaClienteId + '/recarregar', 'POST', { valor, forma });
   if (res.saldo !== undefined) {
+    chuvaDeMoedas();
     toast(`✅ Recarga de ${valor} Alegrias realizada!`, 'success');
     selecionarClienteCaixa(estado.caixaClienteId);
     // Limpa campos
@@ -1098,6 +1166,7 @@ async function clienteFazerPedido() {
   });
 
   if (res.ok) {
+    chuvaDeMoedas();
     document.getElementById('cliente-saldo').textContent = res.saldo;
     estado.clienteCarrinho = [];
     clienteAtualizarCarrinho();
@@ -1352,6 +1421,7 @@ async function confirmarCompra() {
   });
 
   if (res.ok) {
+    chuvaDeMoedas();
     toast(`✅ Compra confirmada! Novo saldo: ${res.saldo} 🌟`, 'success');
     document.getElementById('cliente-saldo').textContent = res.saldo;
     carregarPedidosCliente();
@@ -1404,6 +1474,31 @@ function abrirTabAdmin(ev, tab) {
   localStorage.setItem('tab_admin', tab);
   if (tab === 'log') carregarLogAdmin();
   if (tab === 'transacoes') filtrarTransacoes();
+  if (tab === 'senhas') carregarSenhas();
+}
+
+// ── ADMIN: GERENCIAR SENHAS ─────────────────────────────────────
+async function carregarSenhas() {
+  const r = await api('/api/admin/senhas');
+  if (r.admin !== undefined) document.getElementById('senha-admin-input').value = r.admin;
+  if (r.caixa !== undefined) document.getElementById('senha-caixa-input').value = r.caixa;
+  const aviso = document.getElementById('senhas-aviso-migracao');
+  if (aviso) aviso.style.display = r.persistido ? 'none' : 'block';
+}
+
+function toggleVerSenha(inputId, btn) {
+  const el = document.getElementById(inputId);
+  el.type = el.type === 'password' ? 'text' : 'password';
+  btn.textContent = el.type === 'password' ? '👁️' : '🙈';
+}
+
+async function salvarSenha(perfil) {
+  const senha = document.getElementById('senha-' + perfil + '-input').value.trim();
+  if (!/^\d{4,8}$/.test(senha)) { toast('Senha deve ter de 4 a 8 dígitos numéricos!', 'error'); return; }
+  if (!confirm(`Alterar a senha do ${perfil} para "${senha}"?\n\nAnote em local seguro — a senha antiga deixa de funcionar imediatamente.`)) return;
+  const res = await api('/api/admin/senhas', 'PUT', { perfil, senha });
+  if (res.ok) toast(`✅ Senha do ${perfil} atualizada!`, 'success');
+  else toast(res.error || 'Erro ao salvar senha!', 'error');
 }
 
 function restaurarTabAdmin() {
@@ -1731,6 +1826,7 @@ let txFiltros = { data: '', tipo: '', barraca_id: '', cliente_nome: '' };
 
 const _origemLabel = {
   qr:      { texto: 'QR Code',  cor: '#E8458C', badge: 'badge-red' },
+  especie: { texto: '🪙 Espécie', cor: '#C8A020', badge: 'badge-yellow' },
   pedido:  { texto: 'Cardápio', cor: '#3A6EC8', badge: 'badge-blue' },
   recarga: { texto: 'Recarga',  cor: '#16a34a', badge: 'badge-green' },
 };
@@ -1741,6 +1837,8 @@ const _formaLabel = {
   cartao:   '💳 Cartão',
   debito:   '💳 Débito',
   credito:  '💳 Crédito',
+  especie:  '🪙 Espécie (Alegrias)',
+  qr:       '📲 QR Code',
 };
 
 async function filtrarTransacoes() {

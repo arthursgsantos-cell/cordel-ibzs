@@ -403,6 +403,43 @@ tr:hover td { background: #F5F8FF; }
 .modal-acao-btn { display:inline-flex; align-items:center; gap:4px; padding:6px 12px; border-radius:8px; font-family:'Fredoka',sans-serif; font-size:0.85rem; font-weight:600; cursor:pointer; border:2px solid; transition:all 0.15s; }
 .modal-acao-btn:hover { transform: scale(1.03); }
 
+/* ── SPLASH (abertura do app) ── */
+#splash {
+  position: fixed; inset: 0; z-index: 10000;
+  background: linear-gradient(160deg, #1E3A6E 0%, #3A6EC8 100%);
+  display: flex; align-items: center; justify-content: center;
+  transition: opacity 0.6s ease;
+}
+#splash.splash-out { opacity: 0; pointer-events: none; }
+.splash-inner { text-align: center; animation: splashPop 0.9s cubic-bezier(0.18, 0.89, 0.32, 1.28) both; }
+#splash-logo {
+  max-height: 180px; max-width: 70vw; object-fit: contain;
+  filter: drop-shadow(0 8px 24px rgba(0,0,0,0.35));
+}
+.splash-emoji { font-size: 5rem; }
+.splash-title { color: #fff; font-size: 1.5rem; font-weight: 700; margin-top: 14px; animation: splashFade 0.8s ease 0.45s both; }
+.splash-sub { color: #C8A020; font-size: 0.95rem; font-weight: 600; margin-top: 2px; animation: splashFade 0.8s ease 0.65s both; }
+@keyframes splashPop {
+  0%   { transform: scale(0.4); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+@keyframes splashFade {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── CHUVA DE MOEDAS (venda/compra) ── */
+.moeda-anim {
+  position: fixed; top: -60px; z-index: 9998; pointer-events: none;
+  animation: moedaCair linear both;
+  text-shadow: 0 2px 8px rgba(200,160,32,0.45);
+}
+@keyframes moedaCair {
+  0%   { transform: translateY(0) rotate(0deg); opacity: 1; }
+  85%  { opacity: 1; }
+  100% { transform: translateY(115vh) rotate(680deg); opacity: 0; }
+}
+
 @media (max-width: 400px) {
   .produtos-grid { grid-template-columns: 1fr; }
   .kpi-grid { grid-template-columns: 1fr; }
