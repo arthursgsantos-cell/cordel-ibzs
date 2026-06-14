@@ -53,6 +53,13 @@ window.addEventListener('DOMContentLoaded', () => {
   restaurarSessao();
 });
 
+// Quando o usuário volta para a aba (mobile sai do background / tela acende)
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
+  if (estado.perfil === 'gerente') gerenteCarregarPedidos();
+  if (estado.perfil === 'cliente') { carregarPedidosCliente(); carregarSaldoCliente(); }
+});
+
 // ── Splash (logomarca animada ao abrir/atualizar o app) ───────────
 function iniciarSplash() {
   const splash = document.getElementById('splash');
@@ -719,8 +726,16 @@ function abrirTab(ev, tab) {
 
 function restaurarTabGerente() {
   const tab = localStorage.getItem('tab_gerente') || 'vender';
+  document.querySelectorAll('#screen-gerente .tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('#screen-gerente .tab-content').forEach(c => c.classList.remove('active'));
+  const tabEl = document.getElementById('tab-' + tab);
   const btn = document.querySelector(`#screen-gerente .tab-btn[onclick*="'${tab}'"]`);
-  if (btn) btn.click();
+  if (tabEl) tabEl.classList.add('active');
+  if (btn) btn.classList.add('active');
+  if (tab === 'relatorio') carregarRelatorioBarraca();
+  else if (tab === 'gerenciar') gerenteCarregarProdutos();
+  else if (tab === 'pedidos') gerenteCarregarPedidos();
+  else if (tab === 'historico') gerenteCarregarHistorico();
 }
 
 let _ultimosPedidosIds = new Set();
@@ -1296,8 +1311,12 @@ function abrirTabCliente(ev, tab) {
 
 function restaurarTabCliente() {
   const tab = localStorage.getItem('tab_cliente') || 'cardapio';
+  document.querySelectorAll('#screen-cliente .tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('#screen-cliente .tab-content').forEach(c => c.classList.remove('active'));
+  const tabEl = document.getElementById('cliente-tab-' + tab);
   const btn = document.querySelector(`#screen-cliente .tab-btn[onclick*="'${tab}'"]`);
-  if (btn) btn.click();
+  if (tabEl) tabEl.classList.add('active');
+  if (btn) btn.classList.add('active');
 }
 
 // ── Cliente: Pedidos ──────────────────────────────────────────────
@@ -1670,8 +1689,16 @@ async function salvarSenha(perfil) {
 
 function restaurarTabAdmin() {
   const tab = localStorage.getItem('tab_admin') || 'dashboard';
+  document.querySelectorAll('#screen-admin .tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('#screen-admin .tab-content').forEach(c => c.classList.remove('active'));
+  const tabEl = document.getElementById('tab-admin-' + tab);
   const btn = document.querySelector(`#screen-admin .tab-btn[onclick*="'${tab}'"]`);
-  if (btn) btn.click();
+  if (tabEl) tabEl.classList.add('active');
+  if (btn) btn.classList.add('active');
+  if (tab === 'log') carregarLogAdmin();
+  else if (tab === 'transacoes') filtrarTransacoes();
+  else if (tab === 'senhas') carregarSenhas();
+  else if (tab === 'monitor') iniciarMonitorPedidos();
 }
 
 async function carregarLogAdmin() {
