@@ -565,7 +565,10 @@
     <!-- ABA LOG -->
     <div id="tab-admin-log" class="tab-content">
       <div class="card">
-        <div class="card-title">📝 Log de Atividades</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
+          <div class="card-title" style="margin:0;">📝 Log de Atividades</div>
+          <button class="btn btn-danger btn-sm" style="width:auto;padding:8px 14px;" onclick="apagarLogAdmin()">🗑️ Limpar histórico</button>
+        </div>
         <div id="admin-log-lista" style="max-height:500px;overflow-y:auto;"></div>
       </div>
     </div>

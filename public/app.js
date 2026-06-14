@@ -1723,6 +1723,15 @@ async function confirmarApagarTodasTransacoes() {
   } else toast(res.error || 'Erro!', 'error');
 }
 
+async function apagarLogAdmin() {
+  if (!confirm('Apagar todo o histórico de atividades? Esta ação não pode ser desfeita.')) return;
+  const res = await api('/api/admin/log', 'DELETE');
+  if (res.ok) {
+    toast('Histórico apagado!', 'success');
+    carregarLogAdmin();
+  } else toast(res.error || 'Erro ao apagar!', 'error');
+}
+
 async function desfazerLog(id) {
   const res = await api('/api/admin/log/' + id + '/desfazer', 'POST');
   if (res.ok) {

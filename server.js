@@ -1410,6 +1410,12 @@ app.get('/api/admin/pedidos-monitor', async (req, res) => {
 });
 
 // ── ADMIN: LOG DE ATIVIDADES ─────────────────────────────────────────────────
+app.delete('/api/admin/log', async (req, res) => {
+  const { error } = await supabase.from('activity_log').delete().not('id', 'is', null);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ok: true });
+});
+
 app.get('/api/admin/log', async (req, res) => {
   const { limit } = req.query;
   const { data, error } = await supabase
