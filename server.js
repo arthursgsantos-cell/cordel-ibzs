@@ -929,19 +929,33 @@ app.get('/api/admin/relatorio', async (req, res) => {
 // ── RELATÓRIO BARRACA ─────────────────────────────────────────────────────────
 
 app.get('/api/barracas/:id/relatorio', async (req, res) => {
-  const { data: tx, error } = await supabase
-    .from('transacoes')
-    .select(`*, clientes(nome)`)
-    .eq('barraca_id', req.params.id)
-    .eq('tipo', 'venda')
-    .order('timestamp', { ascending: false });
-  if (error) return res.status(500).json({ error: error.message });
+  const bid = req.params.id;
+  const [txRes, pedRes] = await Promise.all([
+    supabase.from('transacoes').select('*, clientes(nome)')
+      .eq('barraca_id', bid).eq('tipo', 'venda').order('timestamp', { ascending: false }),
+    supabase.from('pedidos').select('*, clientes(nome)')
+      .eq('barraca_id', bid).eq('status', 'confirmado').order('criado_em', { ascending: false }),
+  ]);
+  if (txRes.error) return res.status(500).json({ error: txRes.error.message });
 
-  const total = tx.reduce((s, t) => s + parseFloat(t.valor), 0);
-  const ticket = tx.length > 0 ? total / tx.length : 0;
+  // Normaliza pedidos para o mesmo formato das transacoes
+  const pedNorm = (pedRes.data || []).map(p => ({
+    ...p,
+    valor: p.valor_total || p.valor || 0,
+    timestamp: p.criado_em,
+    _origem: 'pedido',
+  }));
+
+  const todasVendas = [
+    ...(txRes.data || []).map(t => ({ ...t, _origem: 'qr' })),
+    ...pedNorm,
+  ].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+  const total  = todasVendas.reduce((s, t) => s + parseFloat(t.valor || 0), 0);
+  const ticket = todasVendas.length > 0 ? total / todasVendas.length : 0;
 
   const produtoCount = {};
-  tx.forEach(t => {
+  todasVendas.forEach(t => {
     let itens = [];
     try { itens = JSON.parse(t.itens || '[]'); } catch {}
     itens.forEach(item => {
@@ -952,9 +966,9 @@ app.get('/api/barracas/:id/relatorio', async (req, res) => {
   const topProduto = Object.entries(produtoCount).sort((a, b) => b[1] - a[1])[0];
 
   res.json({
-    total, numVendas: tx.length, ticketMedio: ticket,
+    total, numVendas: todasVendas.length, ticketMedio: ticket,
     topProduto: topProduto ? topProduto[0] : null,
-    vendas: tx
+    vendas: todasVendas,
   });
 });
 
