@@ -186,18 +186,15 @@ app.post('/api/admin/reset-evento', async (req, res) => {
   if (confirmacao !== 'RESETAR') return res.status(400).json({ error: 'Envie { confirmacao: "RESETAR" } para confirmar' });
 
   try {
-    // Ordem importa: primeiro pedidos e transacoes (dependem de clientes), depois clientes
-    const [rPedidos, rTx, rClientes] = await Promise.all([
-      supabase.from('pedidos').delete().neq('id', '00000000-0000-0000-0000-000000000000'),
-      supabase.from('transacoes').delete().neq('id', '00000000-0000-0000-0000-000000000000'),
-    ]);
+    // Sequencial: transacoes e pedidos antes de clientes (FK), pedidos.id é inteiro
+    const rTx  = await supabase.from('transacoes').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    const rPed = await supabase.from('pedidos').delete().gte('id', 0);
+    const rC   = await supabase.from('clientes').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    await supabase.from('activity_log').delete().neq('id', '00000000-0000-0000-0000-000000000000');
 
-    // Clientes depois (referenciados por pedidos/transacoes)
-    const rC = await supabase.from('clientes').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-
-    if (rPedidos.error) throw new Error('pedidos: ' + rPedidos.error.message);
-    if (rTx.error)      throw new Error('transacoes: ' + rTx.error.message);
-    if (rC.error)       throw new Error('clientes: ' + rC.error.message);
+    if (rTx.error)  throw new Error('transacoes: ' + rTx.error.message);
+    if (rPed.error) throw new Error('pedidos: ' + rPed.error.message);
+    if (rC.error)   throw new Error('clientes: ' + rC.error.message);
 
     await logAtividade('resetar', 'sistema', null, { descricao: 'Reset geral do evento — dados de teste apagados' }, 'admin', 'Admin');
     console.log('🔴 RESET DO EVENTO executado');
