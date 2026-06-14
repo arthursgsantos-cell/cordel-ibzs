@@ -171,14 +171,22 @@ app.delete('/api/clientes', async (req, res) => {
 });
 
 app.delete('/api/transacoes', async (req, res) => {
-  const { data: tx, error: selErr } = await supabase.from('transacoes').select('id,tipo,valor,cliente_id,barraca_id');
+  // A view unificada exibe transacoes + pedidos confirmados; apaga ambos
+  const { data: tx, error: selErr } = await supabase.from('transacoes').select('id,tipo,valor');
   if (selErr) console.error('[DELETE transacoes] select error:', selErr.message);
-  const { error } = await supabase.from('transacoes').delete().not('id', 'is', null);
-  if (error) { console.error('[DELETE transacoes] delete error:', error.message); return res.status(500).json({ error: error.message }); }
+  const { data: peds, error: selPedErr } = await supabase.from('pedidos').select('id,valor_total');
+  if (selPedErr) console.error('[DELETE pedidos] select error:', selPedErr.message);
+
+  const { error: errTx }  = await supabase.from('transacoes').delete().not('id', 'is', null);
+  const { error: errPed } = await supabase.from('pedidos').delete().not('id', 'is', null);
+  if (errTx)  { console.error('[DELETE transacoes]', errTx.message);  return res.status(500).json({ error: errTx.message }); }
+  if (errPed) { console.error('[DELETE pedidos]',    errPed.message); return res.status(500).json({ error: errPed.message }); }
+
   for (const t of (tx || [])) {
     await logAtividade('excluir', 'transacao', t.id, { tipo: t.tipo, valor: t.valor }, 'admin', 'Admin');
   }
-  res.json({ ok: true, total: tx?.length || 0 });
+  const total = (tx?.length || 0) + (peds?.length || 0);
+  res.json({ ok: true, total });
 });
 
 // ── RESET GERAL (apaga dados de teste, mantém barracas e produtos) ────────────
