@@ -171,9 +171,10 @@ app.delete('/api/clientes', async (req, res) => {
 });
 
 app.delete('/api/transacoes', async (req, res) => {
-  const { data: tx } = await supabase.from('transacoes').select('id,tipo,valor,cliente_id,barraca_id');
-  const { error } = await supabase.from('transacoes').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-  if (error) return res.status(500).json({ error: error.message });
+  const { data: tx, error: selErr } = await supabase.from('transacoes').select('id,tipo,valor,cliente_id,barraca_id');
+  if (selErr) console.error('[DELETE transacoes] select error:', selErr.message);
+  const { error } = await supabase.from('transacoes').delete().not('id', 'is', null);
+  if (error) { console.error('[DELETE transacoes] delete error:', error.message); return res.status(500).json({ error: error.message }); }
   for (const t of (tx || [])) {
     await logAtividade('excluir', 'transacao', t.id, { tipo: t.tipo, valor: t.valor }, 'admin', 'Admin');
   }
@@ -187,10 +188,10 @@ app.post('/api/admin/reset-evento', async (req, res) => {
 
   try {
     // Sequencial: transacoes e pedidos antes de clientes (FK), pedidos.id é inteiro
-    const rTx  = await supabase.from('transacoes').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-    const rPed = await supabase.from('pedidos').delete().gte('id', 0);
-    const rC   = await supabase.from('clientes').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-    await supabase.from('activity_log').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    const rTx  = await supabase.from('transacoes').delete().not('id', 'is', null);
+    const rPed = await supabase.from('pedidos').delete().not('id', 'is', null);
+    const rC   = await supabase.from('clientes').delete().not('id', 'is', null);
+    await supabase.from('activity_log').delete().not('id', 'is', null);
 
     if (rTx.error)  throw new Error('transacoes: ' + rTx.error.message);
     if (rPed.error) throw new Error('pedidos: ' + rPed.error.message);
