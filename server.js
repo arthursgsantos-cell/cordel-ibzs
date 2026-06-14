@@ -590,14 +590,18 @@ app.get('/api/admin/transacoes', async (req, res) => {
     return { ...t, _origem: t.tipo === 'recarga' ? 'recarga' : origemVenda, forma, timestamp: t.timestamp };
   });
 
-  const pedData = (pedRes.data || []).map(p => ({
-    id: p.id, tipo: 'venda', _origem: 'pedido',
-    cliente_id: p.cliente_id, barraca_id: p.barraca_id,
-    valor: p.valor_total || p.valor || 0,
-    itens: p.itens, forma: null,
-    clientes: p.clientes, barracas: p.barracas,
-    timestamp: p.criado_em,
-  }));
+  // Exclui pedidos em espécie: eles já têm uma transacao (forma=especie) que os
+  // representa nesta lista. Contá-los aqui também duplicaria a venda.
+  const pedData = (pedRes.data || [])
+    .filter(p => !pedidoEhEspecie(p))
+    .map(p => ({
+      id: p.id, tipo: 'venda', _origem: 'pedido',
+      cliente_id: p.cliente_id, barraca_id: p.barraca_id,
+      valor: p.valor_total || p.valor || 0,
+      itens: p.itens, forma: null,
+      clientes: p.clientes, barracas: p.barracas,
+      timestamp: p.criado_em,
+    }));
 
   let unified = [...txData, ...pedData]
     .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
@@ -813,7 +817,7 @@ async function formaColunaExiste() {
 }
 
 app.post('/api/vendas/especie', async (req, res) => {
-  const { barraca_id, itens, pagamento } = req.body;
+  const { barraca_id, itens, pagamento, cliente_id } = req.body;
   if (!barraca_id || !Array.isArray(itens) || !itens.length) {
     return res.status(400).json({ error: 'Dados incompletos' });
   }
@@ -821,17 +825,29 @@ app.post('/api/vendas/especie', async (req, res) => {
   if (!valor || valor <= 0) return res.status(400).json({ error: 'Valor inválido' });
   const troco = pagamento ? Math.max(0, parseFloat(pagamento) - valor) : 0;
 
+  // Cliente é opcional. Se enviado, valida que existe (apenas identificação —
+  // pagamento é em dinheiro, NÃO debita saldo).
+  let clienteIdValido = null;
+  if (cliente_id) {
+    const { data: cli } = await supabase.from('clientes').select('id').eq('id', cliente_id).maybeSingle();
+    if (!cli) return res.status(404).json({ error: 'Cliente não encontrado' });
+    clienteIdValido = cliente_id;
+  }
+
   const itensComForma = itens.map((i, idx) => idx === 0 ? { ...i, _forma: 'especie' } : i);
   const insert = { tipo: 'venda', barraca_id, valor, itens: JSON.stringify(itensComForma) };
+  if (clienteIdValido) insert.cliente_id = clienteIdValido;
   if (await formaColunaExiste()) insert.forma = 'especie';
 
   const { data: tx, error } = await supabase.from('transacoes').insert(insert).select().single();
   if (error) return res.status(500).json({ error: error.message });
 
-  // Cria pedido pendente para aparecer na aba de Pedidos do gerente
+  // Cria pedido pendente para aparecer na aba de Pedidos do gerente (e no app do
+  // cliente, quando identificado). O marcador _forma:'especie' garante que este
+  // pedido NÃO debite/estorne saldo e NÃO seja contado em dobro nos relatórios.
   await supabase.from('pedidos').insert({
     barraca_id,
-    cliente_id: null,
+    cliente_id: clienteIdValido,
     itens: JSON.stringify(itens.map(i => ({ ...i, _forma: 'especie', _troco: troco }))),
     valor_total: valor,
     status: 'pendente'
@@ -870,9 +886,10 @@ app.get('/api/admin/relatorio', async (req, res) => {
   ]);
 
   const tx     = transacoes.data || [];
-  const peds   = pedidos.data   || [];
+  // Exclui pedidos em espécie: já contabilizados via transacao (forma=especie)
+  const peds   = (pedidos.data || []).filter(p => !pedidoEhEspecie(p));
   const recargas = tx.filter(t => t.tipo === 'recarga');
-  // Vendas QR = transacoes tipo venda
+  // Vendas QR = transacoes tipo venda (inclui as de espécie, que têm forma=especie)
   const vendasQR = tx.filter(t => t.tipo === 'venda');
 
   // Inicia mapa de barracas
@@ -938,13 +955,16 @@ app.get('/api/barracas/:id/relatorio', async (req, res) => {
   ]);
   if (txRes.error) return res.status(500).json({ error: txRes.error.message });
 
-  // Normaliza pedidos para o mesmo formato das transacoes
-  const pedNorm = (pedRes.data || []).map(p => ({
-    ...p,
-    valor: p.valor_total || p.valor || 0,
-    timestamp: p.criado_em,
-    _origem: 'pedido',
-  }));
+  // Normaliza pedidos para o mesmo formato das transacoes.
+  // Exclui pedidos em espécie: já contabilizados via transacao (forma=especie).
+  const pedNorm = (pedRes.data || [])
+    .filter(p => !pedidoEhEspecie(p))
+    .map(p => ({
+      ...p,
+      valor: p.valor_total || p.valor || 0,
+      timestamp: p.criado_em,
+      _origem: 'pedido',
+    }));
 
   const todasVendas = [
     ...(txRes.data || []).map(t => ({ ...t, _origem: 'qr' })),
@@ -1185,6 +1205,17 @@ app.get('/api/cardapio', async (req, res) => {
 
 // ── PEDIDOS DIRETOS ─────────────────────────────────────────────────────────────
 
+// Detecta se um pedido é venda em espécie (pago em dinheiro pelo gerente).
+// Espécie embute _forma:'especie' nos itens. Esses pedidos NÃO debitam/estornam
+// saldo e NÃO entram nas somas dos relatórios (a transacao já os representa).
+function pedidoEhEspecie(pedido) {
+  if (!pedido) return false;
+  try {
+    const itens = JSON.parse(pedido.itens || '[]');
+    return Array.isArray(itens) && itens.some(i => i && i._forma === 'especie');
+  } catch { return false; }
+}
+
 // Criar pedido (cliente escolhe, desconta saldo, notifica barraca)
 app.post('/api/pedidos', async (req, res) => {
   const { cliente_id, barraca_id, itens } = req.body;
@@ -1268,11 +1299,15 @@ app.post('/api/pedidos/:id/cancelar', async (req, res) => {
   if (pe || !pedido) return res.status(404).json({ error: 'Pedido não encontrado' });
   if (pedido.status !== 'pendente') return res.status(400).json({ error: 'Apenas pedidos pendentes podem ser cancelados' });
 
-  // Estorna saldo ao cliente
-  const { data: cliente } = await supabase.from('clientes').select('saldo').eq('id', pedido.cliente_id).single();
-  if (cliente) {
-    const novoSaldo = parseFloat(cliente.saldo) + parseFloat(pedido.valor_total || pedido.valor || 0);
-    await supabase.from('clientes').update({ saldo: novoSaldo }).eq('id', pedido.cliente_id);
+  // Estorna saldo ao cliente — SOMENTE para pedidos pagos em Alegrias.
+  // Vendas em espécie foram pagas em dinheiro: estornar saldo creditaria
+  // Alegrias que o cliente nunca teve. Por isso são puladas aqui.
+  if (pedido.cliente_id && !pedidoEhEspecie(pedido)) {
+    const { data: cliente } = await supabase.from('clientes').select('saldo').eq('id', pedido.cliente_id).single();
+    if (cliente) {
+      const novoSaldo = parseFloat(cliente.saldo) + parseFloat(pedido.valor_total || pedido.valor || 0);
+      await supabase.from('clientes').update({ saldo: novoSaldo }).eq('id', pedido.cliente_id);
+    }
   }
 
   // Restaura estoque dos produtos (operação inversa do decremento)

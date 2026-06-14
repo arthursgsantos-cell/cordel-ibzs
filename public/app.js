@@ -647,8 +647,126 @@ function abrirVendaEspecie() {
   document.getElementById('especie-pagamento').value = total;
   document.getElementById('especie-troco-box').style.display = 'none';
   document.getElementById('especie-troco-falta').style.display = 'none';
+  // Reseta cliente da venda (identificação é opcional)
+  estado.especieClienteId = null;
+  estado.especieClienteNome = null;
+  renderEspecieCliente();
+  document.getElementById('especie-busca-painel').style.display = 'none';
+  document.getElementById('especie-busca').value = '';
+  document.getElementById('especie-busca-resultados').innerHTML = '';
   document.getElementById('modal-venda-especie').classList.remove('hidden');
   calcularTroco();
+}
+
+// ── Cliente da venda em espécie (opcional) ────────────────────────
+function renderEspecieCliente() {
+  const box = document.getElementById('especie-cliente-info');
+  if (!box) return;
+  if (estado.especieClienteId) {
+    box.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+        <div style="text-align:left;min-width:0;">
+          <div style="font-weight:700;color:#1E3A6E;font-size:0.95rem;">👤 ${estado.especieClienteNome}</div>
+          <div style="font-size:0.78rem;color:#16a34a;">Vai aparecer no app do cliente</div>
+        </div>
+        <button class="btn btn-outline btn-sm" style="width:auto;padding:6px 10px;font-size:0.8rem;" onclick="removerEspecieCliente()">Remover</button>
+      </div>`;
+  } else {
+    box.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+        <div style="text-align:left;color:#3A6EC8;font-size:0.9rem;">🪙 Sem cliente (anônimo)</div>
+        <button class="btn btn-primary btn-sm" style="width:auto;padding:6px 12px;font-size:0.82rem;" onclick="abrirBuscaEspecie()">Identificar</button>
+      </div>`;
+  }
+}
+
+function abrirBuscaEspecie() {
+  const p = document.getElementById('especie-busca-painel');
+  p.style.display = p.style.display === 'none' ? 'block' : 'none';
+  if (p.style.display === 'block') document.getElementById('especie-busca').focus();
+}
+
+function removerEspecieCliente() {
+  estado.especieClienteId = null;
+  estado.especieClienteNome = null;
+  renderEspecieCliente();
+}
+
+async function buscarClienteEspecie() {
+  const nome = document.getElementById('especie-busca').value.trim();
+  if (!nome) { toast('Digite um nome!', 'error'); return; }
+  const lista = await api('/api/clientes?nome=' + encodeURIComponent(nome));
+  renderResultadosEspecie(lista);
+}
+
+async function verTodosClientesEspecie() {
+  document.getElementById('especie-busca').value = '';
+  const lista = await api('/api/clientes');
+  renderResultadosEspecie(lista);
+}
+
+function renderResultadosEspecie(lista) {
+  const cont = document.getElementById('especie-busca-resultados');
+  if (!Array.isArray(lista) || !lista.length) {
+    cont.innerHTML = '<p style="color:#dc2626;font-size:0.85rem;padding:6px;">Nenhum cliente encontrado.</p>';
+    return;
+  }
+  cont.innerHTML = lista.slice(0, 30).map(c => `
+    <div style="cursor:pointer;padding:9px 10px;margin-bottom:6px;border:1px solid #d6e0f5;border-radius:8px;background:#fafbff;display:flex;justify-content:space-between;align-items:center;"
+         onclick="selecionarClienteEspecie('${c.id}','${(c.nome || '').replace(/'/g, "\\'")}')">
+      <span style="color:#1E3A6E;font-weight:600;font-size:0.9rem;">${c.nome}</span>
+      <span style="color:#3A6EC8;font-size:0.78rem;">Cód: ${c.codigo}</span>
+    </div>
+  `).join('');
+}
+
+function selecionarClienteEspecie(id, nome) {
+  estado.especieClienteId = id;
+  estado.especieClienteNome = nome;
+  document.getElementById('especie-busca-painel').style.display = 'none';
+  document.getElementById('especie-busca').value = '';
+  document.getElementById('especie-busca-resultados').innerHTML = '';
+  renderEspecieCliente();
+}
+
+async function criarClienteEspecie() {
+  const nome = document.getElementById('especie-busca').value.trim();
+  if (!nome) { toast('Digite o nome do novo cliente!', 'error'); return; }
+  const c = await api('/api/clientes', 'POST', { nome, perfil: 'gerente', perfilNome: estado.gerenteBarraca?.nome || 'Gerente' });
+  if (c && c.id) {
+    toast(`✅ ${c.nome} cadastrado!`, 'success');
+    selecionarClienteEspecie(c.id, c.nome);
+  } else {
+    toast(c.error || 'Erro ao cadastrar!', 'error');
+  }
+}
+
+// ── Scanner QR de cliente (venda em espécie) ──────────────────────
+let _scannerEspecie = null;
+function abrirScannerEspecie() {
+  document.getElementById('reader-especie').innerHTML = '';
+  document.getElementById('modal-scanner-especie').classList.remove('hidden');
+  _scannerEspecie = new Html5Qrcode('reader-especie');
+  _scannerEspecie.start(
+    { facingMode: 'environment' },
+    { fps: 10, qrbox: 220 },
+    (decodedText) => {
+      try {
+        const payload = JSON.parse(decodedText);
+        if (payload.tipo === 'cliente' && payload.id) {
+          fecharScannerEspecie();
+          selecionarClienteEspecie(payload.id, payload.nome || 'Cliente');
+          toast(`✅ Cliente ${payload.nome || ''} identificado!`, 'success');
+        }
+      } catch {}
+    },
+    () => {}
+  ).catch(() => { fecharScannerEspecie(); toast('Câmera indisponível', 'error'); });
+}
+
+function fecharScannerEspecie() {
+  document.getElementById('modal-scanner-especie').classList.add('hidden');
+  if (_scannerEspecie) { _scannerEspecie.stop().catch(() => {}); _scannerEspecie = null; }
 }
 
 function calcularTroco() {
@@ -692,7 +810,8 @@ async function confirmarVendaEspecie() {
   const res = await api('/api/vendas/especie', 'POST', {
     barraca_id: estado.barracaId,
     itens: itens.map(i => ({ id: i.id, nome: i.nome, preco: i.preco, qty: i.qty })),
-    pagamento
+    pagamento,
+    cliente_id: estado.especieClienteId || null
   });
   if (res.ok) {
     fecharModalVendaEspecie();
@@ -809,11 +928,15 @@ async function gerenteCarregarPedidos() {
       const urgClass = waitMin >= 20 ? 'pedido-urgente' : waitMin >= 10 ? 'pedido-alerta' : waitMin >= 5 ? 'pedido-aviso' : '';
       const waitLabel = waitMin < 1 ? 'agora' : `${waitMin}min`;
       const waitCor = waitMin >= 20 ? '#dc2626' : waitMin >= 10 ? '#ea580c' : waitMin >= 5 ? '#d97706' : '#16a34a';
+      const especie = itens.some(i => i && i._forma === 'especie');
+      const nomeHeader = especie
+        ? (p.clientes ? '🪙 ' + p.clientes.nome : '🪙 Espécie')
+        : (p.clientes ? p.clientes.nome : 'Cliente');
       return `
         <div class="pedido-card ${urgClass}">
           <div class="pedido-header">
             <div style="flex:1;min-width:0;">
-              <div style="font-weight:700;color:#1E3A6E;font-size:1rem;">${p.clientes ? p.clientes.nome : '🪙 Espécie'}</div>
+              <div style="font-weight:700;color:#1E3A6E;font-size:1rem;">${nomeHeader}</div>
               <div style="font-size:0.82rem;color:#3A6EC8;">${formatarHora(p.criado_em)}</div>
             </div>
             <div style="text-align:right;flex-shrink:0;">
@@ -869,9 +992,11 @@ async function gerenteCarregarHistorico() {
     let itens = [];
     try { itens = JSON.parse(p.itens || '[]'); } catch {}
     const cor = statusCor[p.status] || '#3A6EC8';
-    const isEspecie = !p.cliente_id || itens.some(i => i._forma === 'especie');
+    const isEspecie = itens.some(i => i._forma === 'especie') || !p.cliente_id;
     const troco = isEspecie ? (itens[0]?._troco ?? 0) : 0;
-    const nomeCliente = isEspecie ? '🪙 Espécie' : (p.clientes?.nome || 'Cliente');
+    const nomeCliente = isEspecie
+      ? (p.clientes?.nome ? '🪙 ' + p.clientes.nome : '🪙 Espécie')
+      : (p.clientes?.nome || 'Cliente');
     const extraInfo = isEspecie && troco > 0
       ? `<div style="font-size:0.8rem;color:#16a34a;font-weight:600;">Troco devolvido: ${troco} 🌟</div>`
       : isEspecie ? '' : '';
@@ -1110,9 +1235,16 @@ async function carregarSaldoCliente() {
 
 async function carregarHistoricoCliente() {
   if (!estado.clienteId) return;
-  const tx = await api('/api/transacoes?cliente_id=' + estado.clienteId + '&tipo=venda&limit=20');
+  const txRaw = await api('/api/transacoes?cliente_id=' + estado.clienteId + '&tipo=venda&limit=20');
   const cont = document.getElementById('cliente-historico');
-  if (!Array.isArray(tx) || !tx.length) {
+  // Remove vendas em espécie: elas têm um pedido próprio e já aparecem na aba
+  // "Pedidos" com status de entrega. Mostrá-las aqui (como débito de saldo)
+  // seria duplicado e enganoso, pois foram pagas em dinheiro.
+  const tx = (Array.isArray(txRaw) ? txRaw : []).filter(t => {
+    if (t.forma === 'especie') return false;
+    try { return !JSON.parse(t.itens || '[]').some(i => i && i._forma === 'especie'); } catch { return true; }
+  });
+  if (!tx.length) {
     cont.innerHTML = '<p style="color:#a0522d;text-align:center;">Nenhuma compra ainda</p>';
     return;
   }
@@ -1341,12 +1473,15 @@ async function carregarPedidosCliente() {
     cont.innerHTML = pendentes.slice(0, 15).map(p => {
       let itens = [];
       try { itens = JSON.parse(p.itens || '[]'); } catch {}
+      const especie = itens.some(i => i && i._forma === 'especie');
+      const tagEspecie = especie ? '<div style="font-size:0.75rem;color:#C8A020;font-weight:600;margin-top:2px;">🪙 Pago em espécie</div>' : '';
       return `
         <div class="pedido-card-cliente" style="border-left:5px solid #E8458C;">
           <div style="display:flex;justify-content:space-between;align-items:start;">
             <div>
               <div style="font-weight:700;color:#1E3A6E;">${p.barracas ? p.barracas.emoji + ' ' + p.barracas.nome : '—'}</div>
               <div style="font-size:0.85rem;color:#E8458C;font-weight:600;margin-top:2px;">🕐 Aguardando preparo...</div>
+              ${tagEspecie}
             </div>
             <div style="text-align:right;">
               <div style="font-size:1.2rem;font-weight:700;color:#C8A020;">${p.valor_total ?? p.valor ?? '?'} 🌟</div>
@@ -1366,14 +1501,17 @@ async function carregarPedidosCliente() {
     const entreguesHtml = entregues.slice(0, 10).map(p => {
       let itens = [];
       try { itens = JSON.parse(p.itens || '[]'); } catch {}
+      const especie = itens.some(i => i && i._forma === 'especie');
+      const tagEspecie = especie ? '<div style="font-size:0.75rem;color:#C8A020;font-weight:600;">🪙 Pago em espécie</div>' : '';
       return `
         <div class="hist-item" style="border-left:4px solid #16a34a;padding-left:8px;">
           <div class="hist-info">
             <div class="hist-barraca">${p.barracas ? p.barracas.emoji + ' ' + p.barracas.nome : '—'}</div>
             <div style="font-size:0.8rem;color:#16a34a;font-weight:600;">✅ Entregue · ${itens.map(i => `${i.qty}x ${i.nome}`).join(', ')}</div>
+            ${tagEspecie}
             <div class="hist-hora">${formatarHora(p.criado_em)}</div>
           </div>
-          <div class="hist-valor">−${p.valor_total ?? p.valor ?? '?'} 🌟</div>
+          <div class="hist-valor">${especie ? '' : '−'}${p.valor_total ?? p.valor ?? '?'} 🌟</div>
         </div>
       `;
     }).join('');
@@ -1384,12 +1522,16 @@ async function carregarPedidosCliente() {
       // Motivo: da coluna dedicada ou embutido no primeiro item como _motivo
       const motivoTexto = p.motivo_cancelamento || itens[0]?._motivo || '';
       const motivo = motivoTexto ? ` · "${motivoTexto}"` : '';
+      const especie = itens.some(i => i && i._forma === 'especie');
+      const estornoLinha = especie
+        ? '<div style="font-size:0.75rem;color:#C8A020;font-weight:600;">🪙 Pago em espécie · sem estorno de saldo</div>'
+        : '<div style="font-size:0.75rem;color:#16a34a;font-weight:600;">↩ Alegrias estornadas</div>';
       return `
         <div class="hist-item" style="border-left:4px solid #dc2626;padding-left:8px;opacity:0.75;">
           <div class="hist-info">
             <div class="hist-barraca">${p.barracas ? p.barracas.emoji + ' ' + p.barracas.nome : '—'}</div>
             <div style="font-size:0.8rem;color:#dc2626;font-weight:600;">❌ Cancelado${motivo}</div>
-            <div style="font-size:0.75rem;color:#16a34a;font-weight:600;">↩ Alegrias estornadas</div>
+            ${estornoLinha}
             <div class="hist-hora">${formatarHora(p.criado_em)}</div>
           </div>
           <div class="hist-valor" style="color:#dc2626;text-decoration:line-through;">${p.valor_total ?? p.valor ?? '?'} 🌟</div>

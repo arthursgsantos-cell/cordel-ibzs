@@ -47,6 +47,23 @@
     <div id="venda-especie-itens" style="text-align:left;margin-bottom:10px;"></div>
     <div id="venda-especie-total" style="font-size:1.4rem;font-weight:700;color:#C8A020;margin-bottom:14px;"></div>
 
+    <!-- Cliente (opcional) -->
+    <div style="border:1px solid #e0e8f5;border-radius:12px;padding:10px;margin-bottom:14px;background:#fff;">
+      <div id="especie-cliente-info"></div>
+      <div id="especie-busca-painel" style="display:none;margin-top:10px;">
+        <input type="text" id="especie-busca" class="form-control" placeholder="🔎 Nome do cliente..."
+          autocomplete="off" style="font-size:0.92rem;margin-bottom:8px;"
+          onkeyup="if(event.key==='Enter') buscarClienteEspecie()" />
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">
+          <button class="btn btn-primary btn-sm" style="flex:1;min-width:70px;padding:8px;font-size:0.8rem;" onclick="buscarClienteEspecie()">🔍 Buscar</button>
+          <button class="btn btn-info btn-sm" style="flex:1;min-width:70px;padding:8px;font-size:0.8rem;" onclick="verTodosClientesEspecie()">👥 Todos</button>
+          <button class="btn btn-outline btn-sm" style="flex:1;min-width:70px;padding:8px;font-size:0.8rem;" onclick="abrirScannerEspecie()">📷 QR</button>
+          <button class="btn btn-success btn-sm" style="flex:1;min-width:70px;padding:8px;font-size:0.8rem;" onclick="criarClienteEspecie()">➕ Novo</button>
+        </div>
+        <div id="especie-busca-resultados" style="max-height:180px;overflow-y:auto;"></div>
+      </div>
+    </div>
+
     <div class="form-group" style="margin-bottom:8px;">
       <label style="font-size:0.92rem;">Alegrias recebidas do cliente</label>
       <input type="number" id="especie-pagamento" class="form-control" min="0" step="1"
@@ -837,6 +854,15 @@
     <h3>📷 Ler QR do Cliente</h3>
     <div id="reader-caixa"></div>
     <button class="btn btn-outline btn-sm" style="margin-top:12px;" onclick="fecharScannerCaixa()">Cancelar</button>
+  </div>
+</div>
+
+<!-- Modal: Scanner QR de Cliente (venda em espécie) -->
+<div id="modal-scanner-especie" class="modal-overlay hidden">
+  <div class="modal-box" style="max-width:360px;text-align:center;">
+    <h3>📷 Ler QR do Cliente</h3>
+    <div id="reader-especie"></div>
+    <button class="btn btn-outline btn-sm" style="margin-top:12px;" onclick="fecharScannerEspecie()">Cancelar</button>
   </div>
 </div>
 
