@@ -95,6 +95,7 @@ function salvarSessao() {
     clienteId: estado.clienteId,
     clienteNome: estado.clienteNome,
     barracaId: estado.barracaId,
+    operadorNome: estado.operadorNome,
   }));
 }
 
@@ -108,6 +109,7 @@ function restaurarSessao() {
     estado.clienteId = sessao.clienteId || null;
     estado.clienteNome = sessao.clienteNome || null;
     estado.barracaId = sessao.barracaId || null;
+    estado.operadorNome = sessao.operadorNome || null;
 
     mostrarTela('screen-' + estado.perfil);
 
@@ -190,6 +192,7 @@ async function fazerLogin() {
       estado.perfil = 'gerente';
       estado.barracaId = res.barraca.id;
       estado.gerenteBarraca = res.barraca;
+      estado.operadorNome = nome;
       mostrarTela('screen-gerente');
       salvarSessao();
       await iniciarGerenteComBarraca(res.barraca);
@@ -200,6 +203,7 @@ async function fazerLogin() {
     const auth = await api('/api/auth/perfil', 'POST', { perfil, codigo });
     if (!auth.ok) { toast(auth.error || 'Código incorreto!', 'error'); return; }
     estado.perfil = perfil;
+    estado.operadorNome = nome;
     mostrarTela('screen-' + perfil);
     salvarSessao();
     if (perfil === 'caixa')   iniciarCaixa();
@@ -388,6 +392,7 @@ async function iniciarGerenteComBarraca(barraca) {
   document.getElementById('gerente-painel').style.display = 'block';
   document.getElementById('gerente-barraca-titulo').textContent = `${barraca.emoji} ${barraca.nome}`;
   document.getElementById('gerente-barraca-nome').textContent = `${barraca.emoji} ${barraca.nome}`;
+  document.getElementById('gerente-operador-nome').textContent = estado.operadorNome ? `👤 ${estado.operadorNome}` : 'Gerente de Barraca';
   // Preenche campos de edição
   document.getElementById('gerente-edit-emoji').value = barraca.emoji || '';
   document.getElementById('gerente-edit-nome').value = barraca.nome || '';
@@ -811,7 +816,8 @@ async function confirmarVendaEspecie() {
     barraca_id: estado.barracaId,
     itens: itens.map(i => ({ id: i.id, nome: i.nome, preco: i.preco, qty: i.qty })),
     pagamento,
-    cliente_id: estado.especieClienteId || null
+    cliente_id: estado.especieClienteId || null,
+    operador: estado.operadorNome || estado.gerenteBarraca?.nome || null
   });
   if (res.ok) {
     fecharModalVendaEspecie();
@@ -1044,6 +1050,8 @@ async function carregarRelatorioBarraca() {
 //  CAIXA
 // ═══════════════════════════════════════════════════════════════════
 function iniciarCaixa() {
+  const opEl = document.getElementById('caixa-operador-nome');
+  if (opEl) opEl.textContent = estado.operadorNome ? `👤 ${estado.operadorNome}` : 'Caixa – Recargas';
   const atualizarDinheiro = () => {
     const v = parseFloat(document.getElementById('recarga-dinheiro-valor').value) || 0;
     const r = parseFloat(document.getElementById('recarga-dinheiro-recebido').value) || 0;
@@ -1119,8 +1127,12 @@ function renderListaClientes(lista, titulo) {
     cont.innerHTML = '<p style="color:#dc2626;font-size:0.95rem;padding:8px;">Nenhum cliente encontrado.</p>';
     return;
   }
+  const LIM = 50;
+  const aviso = lista.length > LIM
+    ? `<div style="font-size:0.8rem;color:#9aaccc;text-align:center;padding:6px;">Mostrando ${LIM} de ${lista.length} — refine pela busca acima</div>`
+    : '';
   cont.innerHTML = `<div style="font-size:0.85rem;color:#3A6EC8;margin-bottom:6px;padding:0 4px;">${titulo}</div>` +
-    lista.map(c => `
+    lista.slice(0, LIM).map(c => `
       <div class="card" style="cursor:pointer;padding:12px;margin-bottom:8px;" onclick="selecionarClienteCaixa('${c.id}')">
         <div style="display:flex;justify-content:space-between;align-items:center;">
           <div>
@@ -1130,7 +1142,7 @@ function renderListaClientes(lista, titulo) {
           <span style="font-weight:700;color:#C8A020;">${c.saldo} 🌟</span>
         </div>
       </div>
-    `).join('');
+    `).join('') + aviso;
 }
 
 async function selecionarClienteCaixa(id) {
@@ -1174,7 +1186,7 @@ async function confirmarRecarga(forma) {
 
   if (!valor || valor <= 0) { toast('Valor inválido!', 'error'); return; }
 
-  const res = await api('/api/clientes/' + estado.caixaClienteId + '/recarregar', 'POST', { valor, forma });
+  const res = await api('/api/clientes/' + estado.caixaClienteId + '/recarregar', 'POST', { valor, forma, operador: estado.operadorNome || null });
   if (res.saldo !== undefined) {
     chuvaDeMoedas();
     toast(`✅ Recarga de ${valor} Alegrias realizada!`, 'success');
@@ -1198,10 +1210,20 @@ async function confirmarRecarga(forma) {
 async function cadastrarCliente() {
   const nome = document.getElementById('novo-cliente-nome').value.trim();
   if (!nome) { toast('Digite o nome!', 'error'); return; }
-  const c = await api('/api/clientes', 'POST', { nome });
+  const c = await api('/api/clientes', 'POST', { nome, perfil: 'caixa', perfilNome: estado.operadorNome || 'Caixa' });
   if (c.id) {
-    toast(`✅ ${c.nome} cadastrado! Código: ${c.codigo}`, 'success');
     document.getElementById('novo-cliente-nome').value = '';
+    alert(
+      `✅ Cliente cadastrado!\n\n` +
+      `Nome: ${c.nome}\n` +
+      `Código: ${c.codigo}\n\n` +
+      `⚠️ ORIENTE O CLIENTE:\n` +
+      `Para entrar no app, ele deve digitar o nome EXATAMENTE assim:\n\n` +
+      `       "${c.nome}"\n\n` +
+      `e depois criar uma senha de 4 dígitos. ` +
+      `Se digitar diferente, o app não vai encontrar o cadastro.`
+    );
+    toast(`✅ ${c.nome} cadastrado!`, 'success');
   } else {
     toast(c.error || 'Erro ao cadastrar!', 'error');
   }
@@ -1248,7 +1270,10 @@ async function carregarHistoricoCliente() {
     cont.innerHTML = '<p style="color:#a0522d;text-align:center;">Nenhuma compra ainda</p>';
     return;
   }
-  cont.innerHTML = tx.map(t => `
+  const verMais = tx.length > 8
+    ? `<div style="text-align:center;margin-top:6px;"><button class="btn btn-outline btn-sm" style="width:auto;padding:6px 14px;font-size:0.82rem;" onclick="abrirExtratoCliente()">Ver extrato completo →</button></div>`
+    : '';
+  cont.innerHTML = tx.slice(0, 8).map(t => `
     <div class="hist-item">
       <div class="hist-info">
         <div class="hist-barraca">${t.barracas ? t.barracas.emoji+' '+t.barracas.nome : 'Barraca'}</div>
@@ -1256,7 +1281,66 @@ async function carregarHistoricoCliente() {
       </div>
       <div class="hist-valor">−${t.valor} 🌟</div>
     </div>
-  `).join('');
+  `).join('') + verMais;
+}
+
+// ── Cliente: Extrato completo (popup ao tocar no saldo) ───────────
+let _extratoCompleto = [];
+async function abrirExtratoCliente() {
+  if (!estado.clienteId) return;
+  document.getElementById('modal-extrato-cliente').classList.remove('hidden');
+  document.getElementById('extrato-lista').innerHTML = '<p style="color:#3A6EC8;text-align:center;padding:16px;">Carregando...</p>';
+  _extratoCompleto = await api('/api/clientes/' + estado.clienteId + '/extrato');
+  if (!Array.isArray(_extratoCompleto)) _extratoCompleto = [];
+  const totalRecarregado = _extratoCompleto.filter(e => e.tipo === 'recarga').reduce((s, e) => s + e.valor, 0);
+  const totalGasto = _extratoCompleto.filter(e => e.tipo === 'venda' && e.origem !== 'especie').reduce((s, e) => s + e.valor, 0);
+  document.getElementById('extrato-resumo').innerHTML = `
+    <div class="kpi-card" style="flex:1;"><div class="kpi-valor" style="color:#16a34a;">+${totalRecarregado} 🌟</div><div class="kpi-label">Recarregado</div></div>
+    <div class="kpi-card" style="flex:1;"><div class="kpi-valor" style="color:#E8458C;">−${totalGasto} 🌟</div><div class="kpi-label">Gasto (saldo)</div></div>`;
+  renderExtrato('tudo');
+}
+
+function filtrarExtrato(ev, filtro) {
+  document.querySelectorAll('.extrato-filtro').forEach(b => b.classList.remove('active'));
+  if (ev?.currentTarget) ev.currentTarget.classList.add('active');
+  renderExtrato(filtro);
+}
+
+function renderExtrato(filtro) {
+  const cont = document.getElementById('extrato-lista');
+  let lista = _extratoCompleto;
+  if (filtro === 'compra') lista = lista.filter(e => e.tipo === 'venda');
+  else if (filtro === 'recarga') lista = lista.filter(e => e.tipo === 'recarga');
+  if (!lista.length) {
+    cont.innerHTML = '<p style="color:#a0522d;text-align:center;padding:16px;">Nada por aqui ainda.</p>';
+    return;
+  }
+  const rotulo = {
+    recarga: { txt: '💰 Recarga',          cor: '#16a34a', sinal: '+' },
+    qr:      { txt: '🛒 Compra (QR)',       cor: '#E8458C', sinal: '−' },
+    especie: { txt: '🪙 Compra (espécie)',  cor: '#C8A020', sinal: ''  },
+    pedido:  { txt: '🛒 Compra (cardápio)', cor: '#3A6EC8', sinal: '−' },
+  };
+  cont.innerHTML = lista.map(e => {
+    const r = rotulo[e.origem] || { txt: 'Transação', cor: '#3A6EC8', sinal: '' };
+    const local = e.barraca ? ` · ${e.barraca}` : '';
+    const op = e.operador ? `<div style="font-size:0.72rem;color:#9aaccc;">por ${e.operador}</div>` : '';
+    const statusPed = e.origem === 'pedido' && e.status === 'cancelado'
+      ? '<span style="color:#dc2626;font-weight:600;"> (cancelado)</span>' : '';
+    return `
+      <div class="hist-item">
+        <div class="hist-info">
+          <div class="hist-barraca" style="color:${r.cor};">${r.txt}${statusPed}</div>
+          <div style="font-size:0.78rem;color:#3A6EC8;">${formatarHora(e.timestamp)}${local}</div>
+          ${op}
+        </div>
+        <div class="hist-valor" style="color:${r.cor};">${r.sinal}${e.valor} 🌟</div>
+      </div>`;
+  }).join('');
+}
+
+function fecharExtratoCliente() {
+  document.getElementById('modal-extrato-cliente').classList.add('hidden');
 }
 
 // ── Cliente: Cardápio ─────────────────────────────────────────────
@@ -1996,7 +2080,11 @@ async function buscarAdminClientes() {
 
 function renderTabelaClientes(clientes) {
   const sorted = [...clientes].sort((a, b) => b.saldo - a.saldo);
-  document.getElementById('admin-clientes-tabela').innerHTML = sorted.map(c => `
+  const LIM = 100;
+  const aviso = sorted.length > LIM
+    ? `<tr><td colspan="4" style="text-align:center;font-size:0.8rem;color:#9aaccc;padding:6px;">📋 Mostrando ${LIM} de ${sorted.length} clientes — use a busca acima para encontrar um cliente específico</td></tr>`
+    : '';
+  document.getElementById('admin-clientes-tabela').innerHTML = aviso + sorted.slice(0, LIM).map(c => `
     <tr>
       <td style="font-weight:600;">${c.nome}</td>
       <td><span class="badge badge-yellow">${c.codigo}</span></td>
@@ -2023,13 +2111,21 @@ async function confirmarExcluirCliente(id, nome) {
 
 function abrirEditarCliente(id) {
   clienteEditandoId = id;
+  const senhaBox = document.getElementById('editar-cliente-senha-atual');
+  senhaBox.textContent = '🔑 Carregando senha...';
   api('/api/clientes/' + id).then(c => {
     document.getElementById('editar-cliente-info').textContent = `Código: ${c.codigo}`;
     document.getElementById('editar-cliente-nome').value = c.nome;
     document.getElementById('editar-cliente-saldo').value = c.saldo;
+    document.getElementById('editar-cliente-novopin').value = '';
     document.getElementById('modal-editar-cliente').dataset.clienteNome = c.nome;
     document.getElementById('modal-editar-cliente').classList.remove('hidden');
   });
+  api('/api/admin/clientes/' + id + '/pin').then(r => {
+    senhaBox.innerHTML = r && r.pin
+      ? `🔑 Senha atual: <strong style="font-size:1.2rem;letter-spacing:3px;">${r.pin}</strong>`
+      : '🔒 Cliente ainda não criou senha';
+  }).catch(() => { senhaBox.textContent = '🔒 Não foi possível carregar a senha'; });
 }
 
 function verTransacoesCliente() {
@@ -2217,6 +2313,7 @@ async function filtrarTransacoes() {
     let localHtml = '—';
     if (t.barracas) localHtml = `${t.barracas.emoji} ${t.barracas.nome}`;
     else if (t.tipo === 'recarga') localHtml = `<span style="color:#16a34a;font-weight:600;">🏧 Caixa</span>`;
+    if (t.operador) localHtml += `<div style="font-size:0.72rem;color:#9aaccc;">👤 ${t.operador}</div>`;
 
     let detalhes = '—';
     if (t._origem === 'recarga') {

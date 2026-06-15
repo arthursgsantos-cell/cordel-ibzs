@@ -218,6 +218,30 @@ function hashPin(pin) {
   return crypto.createHash('sha256').update(pin).digest('hex');
 }
 
+// Recupera o PIN de 4 dígitos a partir do hash (apenas 10 mil combinações).
+// Usado pelo admin para exibir/repassar a senha do cliente. Só é viável porque
+// o PIN é curto (contexto de evento, sem segurança crítica).
+function recuperarPin(pinHash) {
+  if (!pinHash) return null;
+  for (let i = 0; i < 10000; i++) {
+    const pin = String(i).padStart(4, '0');
+    if (hashPin(pin) === pinHash) return pin;
+  }
+  return null;
+}
+
+// Flag: detecta se a coluna 'operador' já foi criada em transacoes (migração v5)
+let _operadorColunaExiste = null;
+async function operadorColunaExiste() {
+  if (_operadorColunaExiste !== null) return _operadorColunaExiste;
+  const { error } = await supabase.from('transacoes').select('operador').limit(1);
+  _operadorColunaExiste = !error || !error.message.includes('operador');
+  if (!_operadorColunaExiste) {
+    console.warn('⚠️  Coluna "operador" não existe em transacoes. Rode supabase_migration_v5.sql.');
+  }
+  return _operadorColunaExiste;
+}
+
 // ── CONFIG / SENHAS (admin e caixa) ──────────────────────────────────────────
 // Senhas ficam na tabela "config" do Supabase. Se a tabela ainda não existir
 // (migração não rodada), cai no padrão hardcoded — o app continua funcionando.
@@ -299,6 +323,50 @@ app.get('/api/clientes/:id', async (req, res) => {
   res.json(data);
 });
 
+// Senha do cliente em texto (apenas admin, para repassar ao cliente).
+app.get('/api/admin/clientes/:id/pin', async (req, res) => {
+  const { data, error } = await supabase.from('clientes').select('pin_hash').eq('id', req.params.id).single();
+  if (error) return res.status(404).json({ error: 'Cliente não encontrado' });
+  res.json({ pin: recuperarPin(data.pin_hash) });
+});
+
+// Extrato unificado do cliente: recargas + compras (QR, espécie e cardápio),
+// ordenado por data. Evita duplicidade da espécie (transacao + pedido).
+app.get('/api/clientes/:id/extrato', async (req, res) => {
+  const id = req.params.id;
+  const [txRes, pedRes] = await Promise.all([
+    supabase.from('transacoes').select('*, barracas(nome,emoji)').eq('cliente_id', id).order('timestamp', { ascending: false }).limit(200),
+    supabase.from('pedidos').select('*, barracas(nome,emoji)').eq('cliente_id', id).order('criado_em', { ascending: false }).limit(200),
+  ]);
+  const txItens = (txRes.data || []).map(t => {
+    let especie = t.forma === 'especie';
+    if (!especie) { try { especie = JSON.parse(t.itens || '[]').some(i => i && i._forma === 'especie'); } catch {} }
+    return {
+      tipo: t.tipo, // 'venda' | 'recarga'
+      origem: t.tipo === 'recarga' ? 'recarga' : (especie ? 'especie' : 'qr'),
+      valor: parseFloat(t.valor || 0),
+      forma: t.forma || null,
+      barraca: t.barracas ? `${t.barracas.emoji} ${t.barracas.nome}` : null,
+      operador: t.operador || null,
+      timestamp: t.timestamp,
+    };
+  });
+  // Pedidos: só os do cardápio (espécie já vem da transacao acima)
+  const pedItens = (pedRes.data || [])
+    .filter(p => !pedidoEhEspecie(p))
+    .map(p => ({
+      tipo: 'venda',
+      origem: 'pedido',
+      status: p.status,
+      valor: parseFloat(p.valor_total || p.valor || 0),
+      barraca: p.barracas ? `${p.barracas.emoji} ${p.barracas.nome}` : null,
+      operador: null,
+      timestamp: p.criado_em,
+    }));
+  const extrato = [...txItens, ...pedItens].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+  res.json(extrato);
+});
+
 app.get('/api/clientes/:id/qr', async (req, res) => {
   const { data: cliente, error } = await supabase.from('clientes').select('id,nome,codigo').eq('id', req.params.id).single();
   if (error) return res.status(404).json({ error: 'Cliente não encontrado' });
@@ -362,7 +430,7 @@ app.post('/api/clientes/login', async (req, res) => {
 // ── RECARGA ──────────────────────────────────────────────────────────────────
 
 app.post('/api/clientes/:id/recarregar', async (req, res) => {
-  const { valor, forma } = req.body;
+  const { valor, forma, operador } = req.body;
   const v = parseFloat(valor);
   if (!v || v <= 0) return res.status(400).json({ error: 'Valor inválido' });
 
@@ -382,6 +450,7 @@ app.post('/api/clientes/:id/recarregar', async (req, res) => {
     itens: JSON.stringify({ forma: forma || 'dinheiro' })
   };
   if (await formaColunaExiste()) txRecarga.forma = forma || 'dinheiro';
+  if (operador && await operadorColunaExiste()) txRecarga.operador = operador;
   await supabase.from('transacoes').insert(txRecarga);
 
   res.json({ saldo: novoSaldo });
@@ -817,7 +886,7 @@ async function formaColunaExiste() {
 }
 
 app.post('/api/vendas/especie', async (req, res) => {
-  const { barraca_id, itens, pagamento, cliente_id } = req.body;
+  const { barraca_id, itens, pagamento, cliente_id, operador } = req.body;
   if (!barraca_id || !Array.isArray(itens) || !itens.length) {
     return res.status(400).json({ error: 'Dados incompletos' });
   }
@@ -838,6 +907,7 @@ app.post('/api/vendas/especie', async (req, res) => {
   const insert = { tipo: 'venda', barraca_id, valor, itens: JSON.stringify(itensComForma) };
   if (clienteIdValido) insert.cliente_id = clienteIdValido;
   if (await formaColunaExiste()) insert.forma = 'especie';
+  if (operador && await operadorColunaExiste()) insert.operador = operador;
 
   const { data: tx, error } = await supabase.from('transacoes').insert(insert).select().single();
   if (error) return res.status(500).json({ error: error.message });
