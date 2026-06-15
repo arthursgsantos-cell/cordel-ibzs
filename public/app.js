@@ -2352,7 +2352,8 @@ async function initFiltrosBarraca() {
 
 // ── FECHAR CAIXA ────────────────────────────────────────────────
 function mostrarModalFecharCaixa() {
-  const hoje = new Date().toISOString().split('T')[0];
+  // Data de hoje no fuso de Brasília (−3h), não em UTC
+  const hoje = new Date(Date.now() - 3 * 3600 * 1000).toISOString().split('T')[0];
   document.getElementById('fechar-caixa-data').value = hoje;
   document.getElementById('fechar-caixa-resultado').style.display = 'none';
   document.getElementById('modal-fechar-caixa').classList.remove('hidden');

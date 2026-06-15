@@ -721,8 +721,10 @@ app.post('/api/admin/fechar-caixa', async (req, res) => {
   const { data } = req.body;
   if (!data) return res.status(400).json({ error: 'Data obrigatória' });
 
-  const ini = data + 'T00:00:00';
-  const fim = data + 'T23:59:59';
+  // Limites do dia no fuso de Brasília (−03:00). Sem o offset, o Postgres
+  // interpretaria em UTC e vendas do fim da noite cairiam no dia seguinte.
+  const ini = data + 'T00:00:00-03:00';
+  const fim = data + 'T23:59:59-03:00';
 
   const [tx, peds, clientes, barracas] = await Promise.all([
     supabase.from('transacoes').select(`*, clientes(nome), barracas(nome,emoji)`)
