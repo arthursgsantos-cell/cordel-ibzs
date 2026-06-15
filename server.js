@@ -724,16 +724,33 @@ app.post('/api/admin/fechar-caixa', async (req, res) => {
   const ini = data + 'T00:00:00';
   const fim = data + 'T23:59:59';
 
-  const [tx, clientes, barracas] = await Promise.all([
+  const [tx, peds, clientes, barracas] = await Promise.all([
     supabase.from('transacoes').select(`*, clientes(nome), barracas(nome,emoji)`)
       .gte('timestamp', ini).lte('timestamp', fim).order('timestamp', { ascending: false }),
+    // Vendas do cardápio = pedidos confirmados no dia (exclui espécie: já vem como transacao)
+    supabase.from('pedidos').select(`*, clientes(nome), barracas(nome,emoji)`)
+      .eq('status', 'confirmado')
+      .gte('criado_em', ini).lte('criado_em', fim).order('criado_em', { ascending: false }),
     supabase.from('clientes').select('*'),
     supabase.from('barracas').select('*').eq('ativa', true)
   ]);
 
   const txx = tx.data || [];
-  const vendas = txx.filter(t => t.tipo === 'venda');
+  const vendasTx = txx.filter(t => t.tipo === 'venda');
   const recargas = txx.filter(t => t.tipo === 'recarga');
+
+  // Pedidos de cardápio (sem espécie) normalizados como vendas
+  const pedVendas = (peds.data || [])
+    .filter(p => !pedidoEhEspecie(p))
+    .map(p => ({
+      tipo: 'venda', _origem: 'pedido',
+      cliente_id: p.cliente_id, barraca_id: p.barraca_id,
+      valor: p.valor_total || p.valor || 0,
+      clientes: p.clientes, barracas: p.barracas,
+      timestamp: p.criado_em,
+    }));
+
+  const vendas = [...vendasTx, ...pedVendas];
 
   const porBarraca = {};
   (barracas.data || []).forEach(b => { porBarraca[b.id] = { nome: b.nome, emoji: b.emoji, total: 0, vendas: 0 }; });
@@ -741,6 +758,10 @@ app.post('/api/admin/fechar-caixa', async (req, res) => {
     if (!porBarraca[t.barraca_id] && t.barracas) porBarraca[t.barraca_id] = { nome: t.barracas.nome, emoji: t.barracas.emoji, total: 0, vendas: 0 };
     if (porBarraca[t.barraca_id]) { porBarraca[t.barraca_id].total += parseFloat(t.valor); porBarraca[t.barraca_id].vendas += 1; }
   });
+
+  // Lista de transações para exibição/PDF: tudo junto, ordenado por hora
+  const transacoesFeed = [...txx, ...pedVendas]
+    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
   res.json({
     data,
@@ -750,7 +771,7 @@ app.post('/api/admin/fechar-caixa', async (req, res) => {
     numRecargas: recargas.length,
     porBarraca: Object.values(porBarraca).sort((a, b) => b.total - a.total),
     totalClientes: (clientes.data || []).length,
-    transacoes: txx,
+    transacoes: transacoesFeed,
     geradoEm: new Date().toISOString()
   });
 });
