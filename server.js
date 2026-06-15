@@ -748,17 +748,31 @@ app.post('/api/admin/fechar-caixa', async (req, res) => {
       tipo: 'venda', _origem: 'pedido',
       cliente_id: p.cliente_id, barraca_id: p.barraca_id,
       valor: p.valor_total || p.valor || 0,
+      itens: p.itens,
       clientes: p.clientes, barracas: p.barracas,
       timestamp: p.criado_em,
     }));
 
   const vendas = [...vendasTx, ...pedVendas];
 
+  // Soma a quantidade de produtos vendidos numa venda (a partir dos itens)
+  const contarProdutos = (t) => {
+    try {
+      const itens = JSON.parse(t.itens || '[]');
+      if (!Array.isArray(itens)) return 0;
+      return itens.reduce((s, i) => s + (parseInt(i.qty || i.quantidade) || 0), 0);
+    } catch { return 0; }
+  };
+
   const porBarraca = {};
-  (barracas.data || []).forEach(b => { porBarraca[b.id] = { nome: b.nome, emoji: b.emoji, total: 0, vendas: 0 }; });
+  (barracas.data || []).forEach(b => { porBarraca[b.id] = { nome: b.nome, emoji: b.emoji, total: 0, vendas: 0, produtos: 0 }; });
   vendas.forEach(t => {
-    if (!porBarraca[t.barraca_id] && t.barracas) porBarraca[t.barraca_id] = { nome: t.barracas.nome, emoji: t.barracas.emoji, total: 0, vendas: 0 };
-    if (porBarraca[t.barraca_id]) { porBarraca[t.barraca_id].total += parseFloat(t.valor); porBarraca[t.barraca_id].vendas += 1; }
+    if (!porBarraca[t.barraca_id] && t.barracas) porBarraca[t.barraca_id] = { nome: t.barracas.nome, emoji: t.barracas.emoji, total: 0, vendas: 0, produtos: 0 };
+    if (porBarraca[t.barraca_id]) {
+      porBarraca[t.barraca_id].total += parseFloat(t.valor);
+      porBarraca[t.barraca_id].vendas += 1;
+      porBarraca[t.barraca_id].produtos += contarProdutos(t);
+    }
   });
 
   // Lista de transações para exibição/PDF: tudo junto, ordenado por hora

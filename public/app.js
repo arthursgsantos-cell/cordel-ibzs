@@ -2380,9 +2380,11 @@ async function gerarFecharCaixa() {
   `;
 
   document.getElementById('fechar-caixa-barracas').innerHTML = (r.porBarraca || []).map(b => `
-    <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #D0DCFF;">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #D0DCFF;gap:8px;">
       <span>${b.emoji} ${b.nome}</span>
-      <span><strong>${b.vendas}</strong> vendas · <strong>${b.total} 🌟</strong></span>
+      <span style="text-align:right;white-space:nowrap;">
+        <strong>${b.vendas}</strong> vendas · <strong>${b.produtos ?? 0}</strong> produtos · <strong>${b.total} 🌟</strong>
+      </span>
     </div>
   `).join('') || '<p style="color:#9aaccc;text-align:center;">Nenhuma venda</p>';
 
@@ -2416,8 +2418,8 @@ function exportarCaixaExcel() {
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(resumo), 'Resumo');
 
   // Aba 2: Vendas por Barraca
-  const barracasData = [['Barraca', 'Nº Vendas', 'Total (Alegrias)']];
-  (r.porBarraca || []).forEach(b => barracasData.push([(b.emoji || '') + ' ' + b.nome, b.vendas, b.total]));
+  const barracasData = [['Barraca', 'Nº Vendas', 'Produtos', 'Total (Alegrias)']];
+  (r.porBarraca || []).forEach(b => barracasData.push([(b.emoji || '') + ' ' + b.nome, b.vendas, b.produtos ?? 0, b.total]));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(barracasData), 'Por Barraca');
 
   // Aba 3: Transações
@@ -2492,8 +2494,8 @@ function exportarCaixaPDF() {
   doc.text('Vendas por Barraca', 14, y); y += 4;
   doc.autoTable({
     startY: y,
-    head: [['Barraca', 'Nº Vendas', 'Total (Alegrias)']],
-    body: (r.porBarraca || []).map(b => [_semEmoji(b.nome), b.vendas, b.total]),
+    head: [['Barraca', 'Nº Vendas', 'Produtos', 'Total (Alegrias)']],
+    body: (r.porBarraca || []).map(b => [_semEmoji(b.nome), b.vendas, b.produtos ?? 0, b.total]),
     headStyles: { fillColor: [30, 58, 110], textColor: 255, fontStyle: 'bold' },
     alternateRowStyles: { fillColor: [238, 242, 255] },
     styles: { fontSize: 10, cellPadding: 3 },
