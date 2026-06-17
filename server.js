@@ -116,6 +116,20 @@ function scoreFuzzy(nome, query) {
   return Math.round(total / pq.length);
 }
 
+// Avatares para a "garrafa de tampinhas" da tela de login (público, sem PII:
+// só o avatar, sem nome/saldo/senha). Mais recentes primeiro.
+app.get('/api/avatares', async (req, res) => {
+  if (!(await avatarColunaExiste())) return res.json([]);
+  const lim = Math.min(parseInt(req.query.limit) || 200, 400);
+  const { data, error } = await supabase
+    .from('clientes').select('avatar, criado_em')
+    .not('avatar', 'is', null)
+    .order('criado_em', { ascending: false })
+    .limit(lim);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json((data || []).map(c => c.avatar));
+});
+
 app.get('/api/clientes', async (req, res) => {
   const { nome, codigo } = req.query;
   if (codigo) {

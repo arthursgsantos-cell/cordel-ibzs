@@ -52,7 +52,24 @@ window.addEventListener('DOMContentLoaded', () => {
   renderLogoTodas();
   atualizarFormLogin();
   restaurarSessao();
+  carregarTampinhas();
 });
+
+// "Garrafa de tampinhas": avatares de quem já se cadastrou enchem o card de
+// login de baixo pra cima, discretos (opacidade baixa via CSS).
+async function carregarTampinhas() {
+  const cont = document.getElementById('login-tampinhas');
+  if (!cont) return;
+  let avatares;
+  try { avatares = await api('/api/avatares?limit=120'); } catch { return; }
+  if (!Array.isArray(avatares) || !avatares.length) { cont.innerHTML = ''; return; }
+  // endpoint vem do mais novo p/ o mais antigo; invertendo, os recentes
+  // ficam por último (caem por cima, como tampinhas novas na garrafa)
+  const lista = avatares.slice(0, 90).reverse();
+  cont.innerHTML = lista.map((cfg, i) =>
+    `<div class="tampinha" style="animation-delay:${Math.min(i * 25, 1500)}ms">${AVATAR.render(cfg, 30)}</div>`
+  ).join('');
+}
 
 // Quando o usuário volta para a aba (mobile sai do background / tela acende)
 document.addEventListener('visibilitychange', () => {
@@ -646,6 +663,7 @@ function logout() {
   document.getElementById('cliente-avatar-header').innerHTML = '';
   mostrarTela('screen-login');
   limparSessao();
+  carregarTampinhas();
 }
 
 // ═══════════════════════════════════════════════════════════════════
