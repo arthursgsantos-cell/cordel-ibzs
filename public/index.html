@@ -231,8 +231,30 @@
   </div>
 </div>
 
+<!-- Modal Editar Avatar (cliente logado) -->
+<div id="modal-avatar-editor" class="modal-overlay hidden">
+  <div class="modal-box" style="max-width:420px;">
+    <h3>🎭 Seu avatar</h3>
+    <div class="avatar-builder" style="margin-top:14px;">
+      <div id="avatar-preview-edit" class="avatar-preview"></div>
+      <div class="avatar-builder-actions">
+        <button type="button" class="btn btn-primary btn-sm" onclick="variarAvatar()">🎲 Variar</button>
+        <button type="button" class="btn btn-outline btn-sm" onclick="toggleAvatarCustom()">🎨 Personalizar</button>
+        <button type="button" class="btn btn-outline btn-sm" onclick="abrirCameraAvatar()">📷 Tirar foto</button>
+        <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('avatar-foto-input-edit').click()">🖼️ Escolher foto</button>
+      </div>
+    </div>
+    <div id="avatar-custom-edit" class="avatar-custom hidden"></div>
+    <input type="file" id="avatar-foto-input-edit" accept="image/*" style="display:none;" onchange="escolherFotoAvatar(event)" />
+    <div style="display:flex;gap:10px;margin-top:16px;">
+      <button class="btn btn-outline btn-sm" style="flex:1;" onclick="fecharEditarAvatar()">Cancelar</button>
+      <button class="btn btn-primary btn-sm" style="flex:1;" onclick="salvarEditarAvatar()">💾 Salvar</button>
+    </div>
+  </div>
+</div>
+
 <!-- Modal Câmera (tirar foto para o avatar) -->
-<div id="modal-camera" class="modal-overlay hidden">
+<div id="modal-camera" class="modal-overlay hidden" style="z-index:1100;">
   <div class="modal-box" style="max-width:360px;">
     <h3>📷 Tirar foto</h3>
     <div class="camera-wrap">
@@ -511,7 +533,7 @@
 ══════════════════════════════════════════════════════════════════ -->
 <div id="screen-cliente" class="screen">
   <div class="app-header header-cliente">
-    <div id="cliente-avatar-header" class="cliente-avatar-header"></div>
+    <div id="cliente-avatar-header" class="cliente-avatar-header" onclick="abrirEditarAvatar()" title="Editar meu avatar"></div>
     <div class="header-titles">
       <div class="site-title-sm">AI - Alegria Inteligente</div>
       <div class="site-subtitle-sm" id="cliente-nome-header">Bem-vindo!</div>

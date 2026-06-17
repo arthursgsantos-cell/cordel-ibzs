@@ -386,17 +386,25 @@ const AVATAR_LABELS = {
 };
 const AVATAR_ORDEM = ['hat', 'bg', 'skin', 'hair', 'hairStyle', 'face', 'acc'];
 
-function iniciarAvatarBuilder(cfgInicial) {
+// Em qual conjunto de elementos o construtor está atuando: cadastro ou edição.
+const AVATAR_UI = {
+  criar:  { preview: 'avatar-preview',      custom: 'avatar-custom',      fileInput: 'avatar-foto-input' },
+  editar: { preview: 'avatar-preview-edit', custom: 'avatar-custom-edit', fileInput: 'avatar-foto-input-edit' },
+};
+let _avatarUI = AVATAR_UI.criar;
+
+function iniciarAvatarBuilder(cfgInicial, contexto) {
+  _avatarUI = AVATAR_UI[contexto] || AVATAR_UI.criar;
   window._avatarCfg = cfgInicial && typeof cfgInicial === 'object'
-    ? Object.assign(AVATAR.random(), cfgInicial)
+    ? (cfgInicial.type === 'photo' ? Object.assign({}, cfgInicial) : Object.assign(AVATAR.random(), cfgInicial))
     : AVATAR.random();
-  document.getElementById('avatar-custom').classList.add('hidden');
+  document.getElementById(_avatarUI.custom).classList.add('hidden');
   renderAvatarPreview();
   renderAvatarCustom();
 }
 
 function renderAvatarPreview() {
-  document.getElementById('avatar-preview').innerHTML = AVATAR.render(window._avatarCfg, 110);
+  document.getElementById(_avatarUI.preview).innerHTML = AVATAR.render(window._avatarCfg, 110);
 }
 
 function variarAvatar() {
@@ -407,7 +415,7 @@ function variarAvatar() {
 }
 
 function toggleAvatarCustom() {
-  const el = document.getElementById('avatar-custom');
+  const el = document.getElementById(_avatarUI.custom);
   el.classList.toggle('hidden');
   if (!el.classList.contains('hidden')) {
     // se estava com foto, volta a um personagem gerado para poder customizar
@@ -432,7 +440,7 @@ function renderAvatarCustom() {
     });
     html += `</div></div>`;
   });
-  document.getElementById('avatar-custom').innerHTML = html;
+  document.getElementById(_avatarUI.custom).innerHTML = html;
 }
 
 function setAvatarPart(parte, valor) {
@@ -443,7 +451,10 @@ function setAvatarPart(parte, valor) {
 
 function renderAvatarHeader(cfg) {
   const el = document.getElementById('cliente-avatar-header');
-  if (el) el.innerHTML = cfg ? AVATAR.render(cfg, 44) : '';
+  if (!el) return;
+  el.innerHTML = cfg
+    ? AVATAR.render(cfg, 44)
+    : '<div class="avatar-placeholder">🙂</div>';
 }
 
 // ── Foto do avatar (galeria + câmera) ────────────────────────────────
@@ -460,7 +471,7 @@ function recortarQuadrado(fonte, larguraOrig, alturaOrig) {
 
 function definirFotoAvatar(dataUrl) {
   window._avatarCfg = { type: 'photo', img: dataUrl };
-  document.getElementById('avatar-custom').classList.add('hidden');
+  document.getElementById(_avatarUI.custom).classList.add('hidden');
   renderAvatarPreview();
 }
 
@@ -491,7 +502,7 @@ async function abrirCameraAvatar() {
   erro.style.display = 'none';
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     // fallback: input com captura direta da câmera do dispositivo
-    const inp = document.getElementById('avatar-foto-input');
+    const inp = document.getElementById(_avatarUI.fileInput);
     inp.setAttribute('capture', 'user');
     inp.click();
     inp.removeAttribute('capture');
@@ -545,6 +556,30 @@ function fecharCameraAvatar() {
   pararStreamCamera();
   document.getElementById('camera-video').srcObject = null;
   document.getElementById('modal-camera').classList.add('hidden');
+}
+
+// ── Editar avatar do cliente já logado ───────────────────────────────
+function abrirEditarAvatar() {
+  if (!estado.clienteId) return;
+  iniciarAvatarBuilder(estado.clienteAvatar || undefined, 'editar');
+  document.getElementById('modal-avatar-editor').classList.remove('hidden');
+}
+
+function fecharEditarAvatar() {
+  document.getElementById('modal-avatar-editor').classList.add('hidden');
+  _avatarUI = AVATAR_UI.criar;
+}
+
+async function salvarEditarAvatar() {
+  const avatar = window._avatarCfg;
+  if (!estado.clienteId || !avatar) { fecharEditarAvatar(); return; }
+  const res = await api('/api/clientes/' + estado.clienteId, 'PUT', { avatar });
+  if (!res || res.error) { toast((res && res.error) || 'Erro ao salvar avatar.', 'error'); return; }
+  estado.clienteAvatar = avatar;
+  renderAvatarHeader(avatar);
+  salvarSessao();
+  fecharEditarAvatar();
+  toast('Avatar atualizado! 🎉', 'success');
 }
 
 function voltarLogin() {
