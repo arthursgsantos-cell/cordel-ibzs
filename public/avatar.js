@@ -40,18 +40,27 @@
       case 'careca':
         return '';
       case 'longo':
+        // copa cheia + mechas que descem emoldurando o rosto
         return `
-          <path d="M24,46 C22,68 26,80 33,82 L38,78 C32,62 33,50 35,44 Z" fill="${cor}"/>
-          <path d="M76,46 C78,68 74,80 67,82 L62,78 C68,62 67,50 65,44 Z" fill="${cor}"/>
-          <path d="M26,46 C26,22 74,22 74,46 C74,33 64,25 50,25 C36,25 26,33 26,46 Z" fill="${cor}"/>`;
+          <path d="M25,50 C23,28 36,20 50,20 C64,20 77,28 75,50
+                   C77,66 74,78 70,83 L62,81
+                   C66,67 66,55 63,46 C61,40 57,37 50,37
+                   C43,37 39,40 37,46 C34,55 34,67 38,81
+                   L30,83 C26,78 23,66 25,50 Z" fill="${cor}"/>`;
       case 'coque':
         return `
-          <circle cx="50" cy="20" r="8" fill="${cor}"/>
-          <path d="M27,46 C27,23 73,23 73,46 C73,33 64,26 50,26 C36,26 27,33 27,46 Z" fill="${cor}"/>`;
+          <circle cx="50" cy="17" r="8" fill="${cor}"/>
+          ${capCabelo(cor)}`;
       case 'curto':
       default:
-        return `<path d="M27,46 C27,22 73,22 73,46 C73,32 63,25 50,25 C37,25 27,32 27,46 Z" fill="${cor}"/>`;
+        return capCabelo(cor);
     }
+  }
+
+  // Copa cheia: cobre o topo da cabeça e desce até a linha do cabelo na testa.
+  function capCabelo(cor) {
+    return `<path d="M26,49 C24,29 35,21 50,21 C65,21 76,29 74,49
+                     C71,40 64,37 50,37 C36,37 29,40 26,49 Z" fill="${cor}"/>`;
   }
 
   function chapeu(tipo) {
