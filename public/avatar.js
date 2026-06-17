@@ -149,7 +149,18 @@
   // ── Render ─────────────────────────────────────────────────────
   function render(cfg, size) {
     cfg = cfg || {};
-    const s    = size || 96;
+    const s = size || 96;
+
+    // Foto enviada/capturada pelo usuário (recortada em círculo)
+    if (cfg.type === 'photo' && cfg.img) {
+      return `<svg width="${s}" height="${s}" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" class="avatar-svg">
+        <defs><clipPath id="ap"><circle cx="50" cy="50" r="50"/></clipPath></defs>
+        <image href="${cfg.img}" x="0" y="0" width="100" height="100"
+               preserveAspectRatio="xMidYMid slice" clip-path="url(#ap)"/>
+        <circle cx="50" cy="50" r="49" fill="none" stroke="#000" stroke-width="1" opacity="0.08"/>
+      </svg>`;
+    }
+
     const bg   = BG[cfg.bg]     || BG.milho;
     const skin = SKIN[cfg.skin] || SKIN.clara;
     const hair = HAIR[cfg.hair] || HAIR.castanho;

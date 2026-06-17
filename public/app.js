@@ -409,7 +409,14 @@ function variarAvatar() {
 function toggleAvatarCustom() {
   const el = document.getElementById('avatar-custom');
   el.classList.toggle('hidden');
-  if (!el.classList.contains('hidden')) renderAvatarCustom();
+  if (!el.classList.contains('hidden')) {
+    // se estava com foto, volta a um personagem gerado para poder customizar
+    if (!window._avatarCfg || window._avatarCfg.type === 'photo') {
+      window._avatarCfg = AVATAR.random();
+      renderAvatarPreview();
+    }
+    renderAvatarCustom();
+  }
 }
 
 function renderAvatarCustom() {
@@ -437,6 +444,107 @@ function setAvatarPart(parte, valor) {
 function renderAvatarHeader(cfg) {
   const el = document.getElementById('cliente-avatar-header');
   if (el) el.innerHTML = cfg ? AVATAR.render(cfg, 44) : '';
+}
+
+// ── Foto do avatar (galeria + câmera) ────────────────────────────────
+// Recorta a imagem em quadrado central e reduz para 256px (JPEG ~leve)
+function recortarQuadrado(fonte, larguraOrig, alturaOrig) {
+  const lado = Math.min(larguraOrig, alturaOrig);
+  const sx = (larguraOrig - lado) / 2;
+  const sy = (alturaOrig - lado) / 2;
+  const canvas = document.createElement('canvas');
+  canvas.width = 256; canvas.height = 256;
+  canvas.getContext('2d').drawImage(fonte, sx, sy, lado, lado, 0, 0, 256, 256);
+  return canvas.toDataURL('image/jpeg', 0.82);
+}
+
+function definirFotoAvatar(dataUrl) {
+  window._avatarCfg = { type: 'photo', img: dataUrl };
+  document.getElementById('avatar-custom').classList.add('hidden');
+  renderAvatarPreview();
+}
+
+function escolherFotoAvatar(event) {
+  const file = event.target.files && event.target.files[0];
+  event.target.value = ''; // permite escolher a mesma foto de novo
+  if (!file) return;
+  if (!file.type.startsWith('image/')) { toast('Selecione uma imagem.', 'error'); return; }
+  const reader = new FileReader();
+  reader.onload = () => {
+    const img = new Image();
+    img.onload = () => definirFotoAvatar(recortarQuadrado(img, img.naturalWidth, img.naturalHeight));
+    img.onerror = () => toast('Não consegui ler essa imagem.', 'error');
+    img.src = reader.result;
+  };
+  reader.onerror = () => toast('Não consegui ler o arquivo.', 'error');
+  reader.readAsDataURL(file);
+}
+
+// Câmera ao vivo (getUserMedia). Se não houver suporte, cai no seletor
+// de arquivo com a câmera do celular (input capture).
+let _cameraStream = null;
+let _cameraFacing = 'user';
+
+async function abrirCameraAvatar() {
+  const modal = document.getElementById('modal-camera');
+  const erro  = document.getElementById('camera-erro');
+  erro.style.display = 'none';
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    // fallback: input com captura direta da câmera do dispositivo
+    const inp = document.getElementById('avatar-foto-input');
+    inp.setAttribute('capture', 'user');
+    inp.click();
+    inp.removeAttribute('capture');
+    return;
+  }
+  modal.classList.remove('hidden');
+  await iniciarStreamCamera();
+}
+
+async function iniciarStreamCamera() {
+  const video = document.getElementById('camera-video');
+  const erro  = document.getElementById('camera-erro');
+  pararStreamCamera();
+  try {
+    _cameraStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: _cameraFacing }, audio: false
+    });
+    video.srcObject = _cameraStream;
+    document.getElementById('btn-trocar-camera').style.display = 'block';
+    document.getElementById('btn-capturar-foto').disabled = false;
+  } catch (e) {
+    erro.textContent = 'Não foi possível abrir a câmera. Verifique a permissão do navegador ou use "Escolher foto".';
+    erro.style.display = 'block';
+    document.getElementById('btn-capturar-foto').disabled = true;
+    document.getElementById('btn-trocar-camera').style.display = 'none';
+  }
+}
+
+function pararStreamCamera() {
+  if (_cameraStream) {
+    _cameraStream.getTracks().forEach(t => t.stop());
+    _cameraStream = null;
+  }
+}
+
+async function trocarCameraAvatar() {
+  _cameraFacing = _cameraFacing === 'user' ? 'environment' : 'user';
+  await iniciarStreamCamera();
+}
+
+function capturarFotoAvatar() {
+  const video = document.getElementById('camera-video');
+  if (!video.videoWidth) { toast('Aguarde a câmera carregar.', 'error'); return; }
+  const dataUrl = recortarQuadrado(video, video.videoWidth, video.videoHeight);
+  definirFotoAvatar(dataUrl);
+  fecharCameraAvatar();
+  toast('Foto capturada! 📸', 'success');
+}
+
+function fecharCameraAvatar() {
+  pararStreamCamera();
+  document.getElementById('camera-video').srcObject = null;
+  document.getElementById('modal-camera').classList.add('hidden');
 }
 
 function voltarLogin() {
@@ -499,6 +607,7 @@ function logout() {
   window._novoClienteNome = null;
   window._clienteConfirmando = null;
   window._avatarCfg = null;
+  if (typeof pararStreamCamera === 'function') pararStreamCamera();
   document.getElementById('cliente-avatar-header').innerHTML = '';
   mostrarTela('screen-login');
   limparSessao();
