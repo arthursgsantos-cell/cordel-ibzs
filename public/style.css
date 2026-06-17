@@ -37,11 +37,61 @@ body {
 
 /* ── LOGIN ── */
 #screen-login.active,
-#screen-criar-pin.active {
+#screen-criar-pin.active,
+#screen-confirma-cliente.active {
   display: flex; flex-direction: column; align-items: center;
   justify-content: center; min-height: 100vh; padding: 20px;
   background: linear-gradient(160deg, #EEF2FF 0%, #D8E4FF 100%);
 }
+
+/* ── AVATAR: construtor ── */
+.avatar-svg { display: block; border-radius: 50%; }
+.avatar-builder {
+  display: flex; align-items: center; gap: 16px;
+  background: #F5F8FF; border: 2px solid #D8E4FF;
+  border-radius: 16px; padding: 12px;
+}
+.avatar-preview {
+  flex: 0 0 auto; width: 110px; height: 110px;
+  border-radius: 50%; box-shadow: 0 4px 14px rgba(30,58,110,0.18);
+}
+.avatar-builder-actions { display: flex; flex-direction: column; gap: 8px; flex: 1; }
+.avatar-custom {
+  margin-top: 12px; background: #F5F8FF; border: 2px solid #D8E4FF;
+  border-radius: 16px; padding: 12px; max-height: 260px; overflow-y: auto;
+}
+.avatar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.avatar-row:last-child { margin-bottom: 0; }
+.avatar-row-label {
+  flex: 0 0 64px; font-size: 0.8rem; font-weight: 600; color: #3A6EC8;
+}
+.avatar-chips { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; }
+.avatar-chip {
+  font-family: inherit; cursor: pointer;
+  border: 2px solid #D8E4FF; background: #fff; color: #3A6EC8;
+  border-radius: 999px; padding: 5px 10px; font-size: 0.78rem; font-weight: 600;
+}
+.avatar-chip.ativo { background: #3A6EC8; color: #fff; border-color: #3A6EC8; }
+
+/* ── AVATAR: confirmação de identidade ── */
+.confirma-card {
+  display: flex; flex-direction: column; align-items: center;
+  background: #F5F8FF; border: 2px solid #D8E4FF;
+  border-radius: 20px; padding: 22px; gap: 8px;
+}
+.confirma-avatar {
+  width: 120px; height: 120px; border-radius: 50%;
+  box-shadow: 0 6px 18px rgba(30,58,110,0.2);
+}
+.confirma-nome { font-size: 1.5rem; font-weight: 700; color: #1E3A6E; text-align: center; }
+.confirma-info { font-size: 0.9rem; color: #3A6EC8; }
+.confirma-dica { font-size: 0.82rem; color: #7A8AA8; text-align: center; margin-top: 12px; }
+
+/* ── AVATAR: header do cliente ── */
+.cliente-avatar-header {
+  flex: 0 0 auto; width: 44px; height: 44px; border-radius: 50%;
+}
+.cliente-avatar-header .avatar-svg { width: 44px; height: 44px; }
 .login-card {
   background: white;
   border: 4px solid #3A6EC8;

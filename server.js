@@ -135,13 +135,14 @@ app.get('/api/clientes', async (req, res) => {
 });
 
 app.put('/api/clientes/:id', async (req, res) => {
-  const { nome, saldo, pin } = req.body;
+  const { nome, saldo, pin, avatar } = req.body;
   const updates = {};
   if (nome !== undefined) updates.nome = nome.trim();
   if (saldo !== undefined && !isNaN(saldo)) updates.saldo = parseFloat(saldo);
   if (pin !== undefined && pin !== '' && /^\d{4}$/.test(String(pin))) {
     updates.pin_hash = hashPin(String(pin));
   }
+  if (avatar !== undefined && await avatarColunaExiste()) updates.avatar = avatar;
   const { data, error } = await supabase
     .from('clientes').update(updates).eq('id', req.params.id).select().single();
   if (error) return res.status(500).json({ error: error.message });
@@ -240,6 +241,17 @@ async function operadorColunaExiste() {
     console.warn('⚠️  Coluna "operador" não existe em transacoes. Rode supabase_migration_v5.sql.');
   }
   return _operadorColunaExiste;
+}
+
+let _avatarColunaExiste = null;
+async function avatarColunaExiste() {
+  if (_avatarColunaExiste !== null) return _avatarColunaExiste;
+  const { error } = await supabase.from('clientes').select('avatar').limit(1);
+  _avatarColunaExiste = !error || !error.message.includes('avatar');
+  if (!_avatarColunaExiste) {
+    console.warn('⚠️  Coluna "avatar" não existe em clientes. Rode supabase_migration_v6.sql.');
+  }
+  return _avatarColunaExiste;
 }
 
 // ── CONFIG / SENHAS (admin e caixa) ──────────────────────────────────────────
@@ -376,7 +388,7 @@ app.get('/api/clientes/:id/qr', async (req, res) => {
 });
 
 app.post('/api/clientes', async (req, res) => {
-  const { nome, pin } = req.body;
+  const { nome, pin, avatar } = req.body;
   if (!nome || !nome.trim()) return res.status(400).json({ error: 'Nome obrigatório' });
 
   const { data: existente } = await supabase
@@ -388,6 +400,7 @@ app.post('/api/clientes', async (req, res) => {
   const codigo = Math.random().toString(36).substring(2, 8).toUpperCase();
   const insertData = { nome: nome.trim(), codigo, saldo: 0 };
   if (pin) insertData.pin_hash = hashPin(pin);
+  if (avatar && await avatarColunaExiste()) insertData.avatar = avatar;
 
   const { data, error } = await supabase.from('clientes').insert(insertData).select().single();
   if (error) return res.status(500).json({ error: error.message });
@@ -424,7 +437,7 @@ app.post('/api/clientes/login', async (req, res) => {
 
   if (cliente.pin_hash !== hashPin(pin)) return res.status(401).json({ error: 'Pin incorreto' });
 
-  res.json({ id: cliente.id, nome: cliente.nome, codigo: cliente.codigo, saldo: cliente.saldo });
+  res.json({ id: cliente.id, nome: cliente.nome, codigo: cliente.codigo, saldo: cliente.saldo, avatar: cliente.avatar || null });
 });
 
 // ── RECARGA ──────────────────────────────────────────────────────────────────

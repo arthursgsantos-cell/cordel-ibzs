@@ -10,6 +10,7 @@ let estado = {
   perfil: null,       // 'cliente' | 'gerente' | 'caixa' | 'admin'
   clienteId: null,
   clienteNome: null,
+  clienteAvatar: null,
   barracaId: null,
   carrinho: [],       // [{ id, nome, preco, qty }]
   qrAtualId: null,
@@ -94,6 +95,7 @@ function salvarSessao() {
     perfil: estado.perfil,
     clienteId: estado.clienteId,
     clienteNome: estado.clienteNome,
+    clienteAvatar: estado.clienteAvatar,
     barracaId: estado.barracaId,
     operadorNome: estado.operadorNome,
   }));
@@ -108,6 +110,7 @@ function restaurarSessao() {
     estado.perfil = sessao.perfil;
     estado.clienteId = sessao.clienteId || null;
     estado.clienteNome = sessao.clienteNome || null;
+    estado.clienteAvatar = sessao.clienteAvatar || null;
     estado.barracaId = sessao.barracaId || null;
     estado.operadorNome = sessao.operadorNome || null;
 
@@ -119,6 +122,7 @@ function restaurarSessao() {
       iniciarCaixa();
     } else if (estado.perfil === 'cliente') {
       document.getElementById('cliente-nome-header').textContent = estado.clienteNome || '';
+      renderAvatarHeader(estado.clienteAvatar);
       iniciarCliente();
     } else if (estado.perfil === 'admin') {
       iniciarAdmin();
@@ -217,9 +221,10 @@ async function fazerLogin() {
   const cliente = clientes.find(c => c.nome.toLowerCase() === nome.toLowerCase());
 
   if (!cliente) {
-    // Cliente novo → vai para tela criar PIN
+    // Cliente novo → vai para tela criar PIN (com construtor de avatar)
     window._novoClienteNome = nome;
     document.getElementById('criar-pin-nome').value = nome;
+    iniciarAvatarBuilder();
     mostrarTela('screen-criar-pin');
     return;
   }
@@ -230,14 +235,70 @@ async function fazerLogin() {
     window._clienteExistenteCodigo = cliente.codigo;
     document.getElementById('criar-pin-nome').value = nome;
     document.getElementById('criar-pin-nome').readOnly = true;
+    iniciarAvatarBuilder(cliente.avatar);
     mostrarTela('screen-criar-pin');
     return;
   }
 
-  // Cliente com PIN → mostra campo de senha
+  // Cliente com PIN → confirmar identidade (avatar + nome + data) antes da senha
+  mostrarConfirmaCliente(cliente);
+}
+
+// ── CONFIRMAÇÃO DE IDENTIDADE (evita entrar na conta de um xará) ──────
+function mostrarConfirmaCliente(cliente) {
+  window._clienteConfirmando = cliente;
+  document.getElementById('confirma-avatar').innerHTML =
+    AVATAR.render(cliente.avatar || AVATAR.random(), 120);
+  document.getElementById('confirma-nome').textContent = cliente.nome;
+  document.getElementById('confirma-info').textContent =
+    'Conta criada ' + formatarDataConta(cliente.criado_em);
+  mostrarTela('screen-confirma-cliente');
+}
+
+function formatarDataConta(iso) {
+  if (!iso) return 'anteriormente';
+  const d = new Date(iso);
+  if (isNaN(d)) return 'anteriormente';
+  const data = d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const hora = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  return `em ${data} às ${hora}`;
+}
+
+function confirmarSouEu() {
+  const cliente = window._clienteConfirmando;
+  if (!cliente) { mostrarTela('screen-login'); return; }
+  mostrarTela('screen-login');
+  document.getElementById('login-nome').value = cliente.nome;
   document.getElementById('login-pin-wrap').style.display = 'block';
   document.getElementById('login-pin').dataset.clienteId = cliente.id;
+  document.getElementById('login-pin').value = '';
+  document.getElementById('login-pin').focus();
   toast('Digite sua senha de 4 dígitos', '');
+}
+
+function naoSouEu() {
+  const cliente = window._clienteConfirmando;
+  const base = (cliente ? cliente.nome : document.getElementById('login-nome').value).trim();
+  const sugestao = proximoNomeSugerido(base);
+  window._clienteConfirmando = null;
+  mostrarTela('screen-login');
+  document.getElementById('login-pin-wrap').style.display = 'none';
+  const campo = document.getElementById('login-nome');
+  campo.value = sugestao;
+  campo.focus();
+  campo.setSelectionRange(sugestao.length, sugestao.length);
+  toast('Tudo bem! Crie sua conta com um nome diferente — sugerimos "' + sugestao + '"', '');
+}
+
+// Sugere "Nome 02", incrementando se já houver número no fim
+function proximoNomeSugerido(nome) {
+  const m = nome.match(/^(.*?)(\d+)\s*$/);
+  if (m) {
+    const base = m[1].trim();
+    const n = parseInt(m[2], 10) + 1;
+    return base + ' ' + String(n).padStart(2, '0');
+  }
+  return nome + ' 02';
 }
 
 async function fazerLoginComPin() {
@@ -258,9 +319,12 @@ async function fazerLoginComPin() {
   estado.perfil = 'cliente';
   estado.clienteId   = res.id;
   estado.clienteNome = res.nome;
+  estado.clienteAvatar = res.avatar || null;
   document.getElementById('cliente-nome-header').textContent = res.nome;
+  renderAvatarHeader(estado.clienteAvatar);
   document.getElementById('login-pin').value = '';
   document.getElementById('login-pin-wrap').style.display = 'none';
+  window._clienteConfirmando = null;
   mostrarTela('screen-cliente');
   salvarSessao();
   iniciarCliente();
@@ -275,32 +339,104 @@ async function confirmarCriarPin() {
   if (!pin || pin.length !== 4 || !/^\d+$/.test(pin)) { toast('Senha deve ter 4 dígitos numéricos!', 'error'); return; }
   if (pin !== confirma) { toast('As senhas não coincidem!', 'error'); return; }
 
+  const avatar = window._avatarCfg || AVATAR.random();
+
   // já existia mas sem PIN
   if (window._clienteExistenteId) {
-    const res = await api('/api/clientes/' + window._clienteExistenteId, 'PUT', { pin });
+    const res = await api('/api/clientes/' + window._clienteExistenteId, 'PUT', { pin, avatar });
     if (!res.id) { toast(res.error || 'Erro!', 'error'); return; }
     estado.clienteId   = res.id;
     estado.clienteNome = res.nome;
     toast('Conta criada! Anote seu código: ' + res.codigo, 'success');
   } else {
     // novo cliente (auto-cadastro: registra como 'cliente', não 'caixa')
-    const cliente = await api('/api/clientes', 'POST', { nome, pin, perfil: 'cliente', perfilNome: nome });
+    const cliente = await api('/api/clientes', 'POST', { nome, pin, avatar, perfil: 'cliente', perfilNome: nome });
     if (!cliente.id) { toast(cliente.error || 'Erro ao criar conta!', 'error'); return; }
     estado.clienteId   = cliente.id;
     estado.clienteNome = cliente.nome;
     toast('Conta criada! Código: ' + cliente.codigo + ' — anote!', 'success');
   }
 
+  estado.clienteAvatar = avatar;
   window._clienteExistenteId = null;
   window._novoClienteNome = null;
+  window._avatarCfg = null;
   document.getElementById('criar-pin-nome').readOnly = false;
   document.getElementById('criar-pin-senha').value = '';
   document.getElementById('criar-pin-confirma').value = '';
   estado.perfil = 'cliente';
   mostrarTela('screen-cliente');
   document.getElementById('cliente-nome-header').textContent = estado.clienteNome;
+  renderAvatarHeader(avatar);
   salvarSessao();
   iniciarCliente();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  CONSTRUTOR DE AVATAR
+// ═══════════════════════════════════════════════════════════════════
+const AVATAR_LABELS = {
+  bg:        { label: 'Fundo',     milho:'Milho', rosa:'Rosa', azul:'Azul', verde:'Verde', fogueira:'Fogueira', roxo:'Roxo' },
+  skin:      { label: 'Pele',      clara:'Clara', morena:'Morena', media:'Média', parda:'Parda', escura:'Escura' },
+  hair:      { label: 'Cabelo',    preto:'Preto', castanho:'Castanho', ruivo:'Ruivo', loiro:'Loiro', grisalho:'Grisalho' },
+  hairStyle: { label: 'Estilo',    curto:'Curto', longo:'Longo', coque:'Coque', careca:'Careca' },
+  hat:       { label: 'Chapéu',    palha:'Palha', cangaceiro:'Cangaceiro', lenco:'Bandana', flor:'Flor', fita:'Fita', none:'Nenhum' },
+  acc:       { label: 'Detalhe',   none:'Nenhum', sardas:'Sardas', bigode:'Bigode', oculos:'Óculos', pintinha:'Pintinha' },
+  face:      { label: 'Expressão', sorriso:'Sorriso', risada:'Risada', serelepe:'Serelepe' },
+};
+const AVATAR_ORDEM = ['hat', 'bg', 'skin', 'hair', 'hairStyle', 'face', 'acc'];
+
+function iniciarAvatarBuilder(cfgInicial) {
+  window._avatarCfg = cfgInicial && typeof cfgInicial === 'object'
+    ? Object.assign(AVATAR.random(), cfgInicial)
+    : AVATAR.random();
+  document.getElementById('avatar-custom').classList.add('hidden');
+  renderAvatarPreview();
+  renderAvatarCustom();
+}
+
+function renderAvatarPreview() {
+  document.getElementById('avatar-preview').innerHTML = AVATAR.render(window._avatarCfg, 110);
+}
+
+function variarAvatar() {
+  // mantém aberto o painel de personalização se já estiver visível
+  window._avatarCfg = AVATAR.random();
+  renderAvatarPreview();
+  renderAvatarCustom();
+}
+
+function toggleAvatarCustom() {
+  const el = document.getElementById('avatar-custom');
+  el.classList.toggle('hidden');
+  if (!el.classList.contains('hidden')) renderAvatarCustom();
+}
+
+function renderAvatarCustom() {
+  const cfg = window._avatarCfg;
+  let html = '';
+  AVATAR_ORDEM.forEach(parte => {
+    const opcoes = AVATAR.PARTS[parte];
+    const labels = AVATAR_LABELS[parte];
+    html += `<div class="avatar-row"><span class="avatar-row-label">${labels.label}</span><div class="avatar-chips">`;
+    opcoes.forEach(op => {
+      const ativo = cfg[parte] === op ? ' ativo' : '';
+      html += `<button type="button" class="avatar-chip${ativo}" onclick="setAvatarPart('${parte}','${op}')">${labels[op] || op}</button>`;
+    });
+    html += `</div></div>`;
+  });
+  document.getElementById('avatar-custom').innerHTML = html;
+}
+
+function setAvatarPart(parte, valor) {
+  window._avatarCfg[parte] = valor;
+  renderAvatarPreview();
+  renderAvatarCustom();
+}
+
+function renderAvatarHeader(cfg) {
+  const el = document.getElementById('cliente-avatar-header');
+  if (el) el.innerHTML = cfg ? AVATAR.render(cfg, 44) : '';
 }
 
 function voltarLogin() {
@@ -351,7 +487,7 @@ async function confirmarAdmin() {
 function logout() {
   clearPolls();
   if (estado.scanner) { try { estado.scanner.stop(); } catch {} estado.scanner = null; }
-  estado = { perfil:null, clienteId:null, clienteNome:null, barracaId:null, carrinho:[], qrAtualId:null, scanner:null, qrPollTimer:null, clientePollTimer:null, caixaClienteId:null, pendingQrPayload:null, clienteCarrinho:[], clienteBarracaAtual:null, pedidosPollTimer:null, gerentePedidosTimer:null, _clienteProdutosEstoque:{} };
+  estado = { perfil:null, clienteId:null, clienteNome:null, clienteAvatar:null, barracaId:null, carrinho:[], qrAtualId:null, scanner:null, qrPollTimer:null, clientePollTimer:null, caixaClienteId:null, pendingQrPayload:null, clienteCarrinho:[], clienteBarracaAtual:null, pedidosPollTimer:null, gerentePedidosTimer:null, _clienteProdutosEstoque:{} };
   document.getElementById('login-nome').value = '';
   document.getElementById('login-codigo').value = '';
   document.getElementById('login-pin').value = '';
@@ -361,6 +497,9 @@ function logout() {
   document.getElementById('criar-pin-confirma').value = '';
   window._clienteExistenteId = null;
   window._novoClienteNome = null;
+  window._clienteConfirmando = null;
+  window._avatarCfg = null;
+  document.getElementById('cliente-avatar-header').innerHTML = '';
   mostrarTela('screen-login');
   limparSessao();
 }

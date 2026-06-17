@@ -183,6 +183,20 @@
       <label>Seu nome</label>
       <input type="text" id="criar-pin-nome" class="form-control" placeholder="Digite seu nome..." autocomplete="off" />
     </div>
+
+    <!-- Construtor de avatar -->
+    <div class="form-group">
+      <label>Seu avatar 🎭</label>
+      <div class="avatar-builder">
+        <div id="avatar-preview" class="avatar-preview"></div>
+        <div class="avatar-builder-actions">
+          <button type="button" class="btn btn-primary btn-sm" onclick="variarAvatar()">🎲 Variar</button>
+          <button type="button" class="btn btn-outline btn-sm" onclick="toggleAvatarCustom()">🎨 Personalizar</button>
+        </div>
+      </div>
+      <div id="avatar-custom" class="avatar-custom hidden"></div>
+    </div>
+
     <div class="form-group">
       <label>Escolha uma senha de 4 dígitos</label>
       <input type="password" id="criar-pin-senha" class="form-control" placeholder="●●●●" maxlength="4" pattern="[0-9]*" inputmode="numeric" style="text-align:center;font-size:1.8rem;letter-spacing:12px;" />
@@ -193,6 +207,24 @@
     </div>
     <button class="btn btn-primary" style="margin-top:8px;" onclick="confirmarCriarPin()">🔐 Criar Conta</button>
     <button class="btn btn-outline btn-sm" style="margin-top:10px;" onclick="voltarLogin()">Já tenho conta</button>
+  </div>
+</div>
+
+<!-- ── TELA CONFIRMAR IDENTIDADE (conta já existe) ──────────────────── -->
+<div id="screen-confirma-cliente" class="screen">
+  <div class="login-card">
+    <div class="site-title" style="margin-top:4px;">Essa conta é sua?</div>
+    <div class="site-subtitle" style="margin-bottom:18px;">Já existe alguém cadastrado com esse nome</div>
+
+    <div class="confirma-card">
+      <div id="confirma-avatar" class="confirma-avatar"></div>
+      <div class="confirma-nome" id="confirma-nome">—</div>
+      <div class="confirma-info" id="confirma-info">conta criada em —</div>
+    </div>
+
+    <button class="btn btn-primary" style="margin-top:18px;" onclick="confirmarSouEu()">✅ Sou eu, entrar</button>
+    <button class="btn btn-outline" style="margin-top:10px;" onclick="naoSouEu()">🙅 Não sou eu</button>
+    <p class="confirma-dica">Se não é você, vamos criar uma conta nova com um nome diferente para não se confundir.</p>
   </div>
 </div>
 
@@ -459,7 +491,7 @@
 ══════════════════════════════════════════════════════════════════ -->
 <div id="screen-cliente" class="screen">
   <div class="app-header header-cliente">
-    <div id="cliente-logo-header"></div>
+    <div id="cliente-avatar-header" class="cliente-avatar-header"></div>
     <div class="header-titles">
       <div class="site-title-sm">AI - Alegria Inteligente</div>
       <div class="site-subtitle-sm" id="cliente-nome-header">Bem-vindo!</div>
@@ -888,6 +920,7 @@
 <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script src="avatar.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
