@@ -52,12 +52,14 @@ window.addEventListener('DOMContentLoaded', () => {
   renderLogoTodas();
   atualizarFormLogin();
   restaurarSessao();
-  carregarTampinhas();
+  // só faz a chuva de tampinhas se a abertura cair na tela de login
+  carregarTampinhas(estado.perfil === null);
 });
 
 // "Garrafa de tampinhas": avatares de quem já se cadastrou enchem o card de
 // login de baixo pra cima, discretos (opacidade baixa via CSS).
-async function carregarTampinhas() {
+// comChuva=true → também derruba as tampinhas como chuva (animação de entrada).
+async function carregarTampinhas(comChuva) {
   const cont = document.getElementById('login-tampinhas');
   if (!cont) return;
   let avatares;
@@ -69,6 +71,24 @@ async function carregarTampinhas() {
   cont.innerHTML = lista.map((cfg, i) =>
     `<div class="tampinha" style="animation-delay:${Math.min(i * 25, 1500)}ms">${AVATAR.render(cfg, 30)}</div>`
   ).join('');
+  if (comChuva) chuvaDeTampinhas(avatares);
+}
+
+// Chuva de tampinhas (avatares/fotos caindo como as moedas), usada na abertura.
+function chuvaDeTampinhas(lista, qtd = 24) {
+  if (!Array.isArray(lista) || !lista.length) return;
+  for (let i = 0; i < qtd; i++) {
+    const cfg = lista[Math.floor(Math.random() * lista.length)];
+    const size = 30 + Math.round(Math.random() * 18); // 30–48px
+    const el = document.createElement('div');
+    el.className = 'tampinha-cai-anim';
+    el.innerHTML = AVATAR.render(cfg, size);
+    el.style.left = (Math.random() * 94) + 'vw';
+    el.style.animationDelay = (Math.random() * 0.9) + 's';
+    el.style.animationDuration = (1.6 + Math.random() * 1.4) + 's';
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 3800);
+  }
 }
 
 // Quando o usuário volta para a aba (mobile sai do background / tela acende)

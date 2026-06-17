@@ -565,6 +565,15 @@ tr:hover td { background: #F5F8FF; }
   100% { transform: translateY(115vh) rotate(680deg); opacity: 0; }
 }
 
+/* ── CHUVA DE TAMPINHAS (avatares caindo na abertura) ── */
+.tampinha-cai-anim {
+  position: fixed; top: -70px; z-index: 10001; pointer-events: none;
+  border-radius: 50%;
+  filter: drop-shadow(0 4px 10px rgba(0,0,0,0.4));
+  animation: moedaCair linear both;
+}
+.tampinha-cai-anim .avatar-svg { display: block; }
+
 /* ── PISCADA NA ABA DE PEDIDOS ── */
 @keyframes abaPiscar {
   0%, 100% { background: linear-gradient(135deg, #E8458C, #C0287A); }
