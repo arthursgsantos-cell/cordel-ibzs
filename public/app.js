@@ -1948,6 +1948,8 @@ async function mostrarMeuQR() {
   if (!res.qr) { toast('Erro ao gerar QR', 'error'); return; }
   document.getElementById('meu-qr-img').src = res.qr;
   document.getElementById('meu-qr-nome').textContent = estado.clienteNome || '';
+  document.getElementById('meu-qr-avatar').innerHTML =
+    estado.clienteAvatar ? AVATAR.render(estado.clienteAvatar, 80) : '';
   document.getElementById('modal-meu-qr').classList.remove('hidden');
 }
 

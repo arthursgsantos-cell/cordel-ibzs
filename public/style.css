@@ -122,6 +122,14 @@ body {
   background: #EEF2FF; display: flex; align-items: center; justify-content: center;
   font-size: 22px;
 }
+
+/* ── AVATAR: no modal Meu QR Code ── */
+.meu-qr-avatar { display: flex; justify-content: center; margin-bottom: 10px; }
+.meu-qr-avatar:empty { display: none; }
+.meu-qr-avatar .avatar-svg {
+  width: 80px; height: 80px;
+  box-shadow: 0 4px 14px rgba(30,58,110,0.2);
+}
 .login-card {
   background: white;
   border: 4px solid #3A6EC8;
