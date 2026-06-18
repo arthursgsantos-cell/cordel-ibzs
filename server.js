@@ -640,7 +640,7 @@ app.get('/api/admin/transacoes', async (req, res) => {
 
   let txQuery = supabase
     .from('transacoes')
-    .select(`*, clientes(nome,codigo), barracas(nome,emoji)`)
+    .select(`*, clientes(nome,codigo,avatar), barracas(nome,emoji)`)
     .order('timestamp', { ascending: false })
     .limit(lim);
   if (barraca_id) txQuery = txQuery.eq('barraca_id', barraca_id);
@@ -660,7 +660,7 @@ app.get('/api/admin/transacoes', async (req, res) => {
 
   let pedQuery = supabase
     .from('pedidos')
-    .select(`*, clientes(nome,codigo), barracas(nome,emoji)`)
+    .select(`*, clientes(nome,codigo,avatar), barracas(nome,emoji)`)
     .eq('status', 'confirmado')
     .order('criado_em', { ascending: false })
     .limit(lim);
@@ -725,7 +725,7 @@ app.get('/api/admin/transacoes', async (req, res) => {
 app.get('/api/admin/export-csv', async (req, res) => {
   const { data: tx } = await supabase
     .from('transacoes')
-    .select(`*, clientes(nome), barracas(nome,emoji)`)
+    .select(`*, clientes(nome,avatar), barracas(nome,emoji)`)
     .order('timestamp', { ascending: false }).limit(2000);
   if (!tx) return res.status(500).json({ error: 'Erro ao buscar dados' });
 
@@ -754,10 +754,10 @@ app.post('/api/admin/fechar-caixa', async (req, res) => {
   const fim = data + 'T23:59:59-03:00';
 
   const [tx, peds, clientes, barracas] = await Promise.all([
-    supabase.from('transacoes').select(`*, clientes(nome), barracas(nome,emoji)`)
+    supabase.from('transacoes').select(`*, clientes(nome,avatar), barracas(nome,emoji)`)
       .gte('timestamp', ini).lte('timestamp', fim).order('timestamp', { ascending: false }),
     // Vendas do cardápio = pedidos confirmados no dia (exclui espécie: já vem como transacao)
-    supabase.from('pedidos').select(`*, clientes(nome), barracas(nome,emoji)`)
+    supabase.from('pedidos').select(`*, clientes(nome,avatar), barracas(nome,emoji)`)
       .eq('status', 'confirmado')
       .gte('criado_em', ini).lte('criado_em', fim).order('criado_em', { ascending: false }),
     supabase.from('clientes').select('*'),
@@ -997,7 +997,7 @@ app.get('/api/transacoes', async (req, res) => {
   const { cliente_id, barraca_id, tipo, limit } = req.query;
   let query = supabase
     .from('transacoes')
-    .select(`*, clientes(nome,codigo), barracas(nome,emoji)`)
+    .select(`*, clientes(nome,codigo,avatar), barracas(nome,emoji)`)
     .order('timestamp', { ascending: false })
     .limit(parseInt(limit) || 100);
   if (cliente_id) query = query.eq('cliente_id', cliente_id);
@@ -1014,8 +1014,8 @@ app.get('/api/admin/relatorio', async (req, res) => {
   // Busca tudo em paralelo: clientes, transacoes (QR), pedidos confirmados, barracas
   const [clientes, transacoes, pedidos, barracas] = await Promise.all([
     supabase.from('clientes').select('*'),
-    supabase.from('transacoes').select('*, clientes(nome), barracas(nome,emoji)').order('timestamp', { ascending: false }).limit(500),
-    supabase.from('pedidos').select('*, clientes(nome), barracas(nome,emoji)').eq('status', 'confirmado').order('criado_em', { ascending: false }).limit(500),
+    supabase.from('transacoes').select('*, clientes(nome,avatar), barracas(nome,emoji)').order('timestamp', { ascending: false }).limit(500),
+    supabase.from('pedidos').select('*, clientes(nome,avatar), barracas(nome,emoji)').eq('status', 'confirmado').order('criado_em', { ascending: false }).limit(500),
     supabase.from('barracas').select('*').eq('ativa', true),
   ]);
 
@@ -1082,9 +1082,9 @@ app.get('/api/admin/relatorio', async (req, res) => {
 app.get('/api/barracas/:id/relatorio', async (req, res) => {
   const bid = req.params.id;
   const [txRes, pedRes] = await Promise.all([
-    supabase.from('transacoes').select('*, clientes(nome)')
+    supabase.from('transacoes').select('*, clientes(nome,avatar)')
       .eq('barraca_id', bid).eq('tipo', 'venda').order('timestamp', { ascending: false }),
-    supabase.from('pedidos').select('*, clientes(nome)')
+    supabase.from('pedidos').select('*, clientes(nome,avatar)')
       .eq('barraca_id', bid).eq('status', 'confirmado').order('criado_em', { ascending: false }),
   ]);
   if (txRes.error) return res.status(500).json({ error: txRes.error.message });
@@ -1401,7 +1401,7 @@ app.post('/api/pedidos', async (req, res) => {
 app.get('/api/pedidos/pendentes/:barracaId', async (req, res) => {
   const { data, error } = await supabase
     .from('pedidos')
-    .select('*, clientes(nome,codigo)')
+    .select('*, clientes(nome,codigo,avatar)')
     .eq('barraca_id', req.params.barracaId)
     .eq('status', 'pendente')
     .order('criado_em', { ascending: true });
@@ -1495,7 +1495,7 @@ app.get('/api/pedidos/cliente/:clienteId', async (req, res) => {
 app.get('/api/pedidos/historico/:barracaId', async (req, res) => {
   const limit = Math.min(parseInt(req.query.limit) || 50, 200);
   const { data, error } = await supabase
-    .from('pedidos').select('*, clientes(nome,codigo)')
+    .from('pedidos').select('*, clientes(nome,codigo,avatar)')
     .eq('barraca_id', req.params.barracaId)
     .order('criado_em', { ascending: false }).limit(limit);
   if (error) return res.status(500).json({ error: error.message });
@@ -1548,7 +1548,7 @@ app.get('/api/admin/pedidos-monitor', async (req, res) => {
 
   const [pendRes, confRes, barsRes] = await Promise.all([
     supabase.from('pedidos')
-      .select('id, criado_em, valor_total, itens, barraca_id, barracas(nome,emoji), clientes(nome)')
+      .select('id, criado_em, valor_total, itens, barraca_id, barracas(nome,emoji), clientes(nome,avatar)')
       .eq('status', 'pendente')
       .order('criado_em', { ascending: true }),
     supabase.from('pedidos')
@@ -1572,7 +1572,7 @@ app.get('/api/admin/pedidos-monitor', async (req, res) => {
     if (!porBarraca[p.barraca_id]) {
       porBarraca[p.barraca_id] = { id: p.barraca_id, nome: p.barracas?.nome || '?', emoji: p.barracas?.emoji || '🏪', pendentes: [], confirmados_hoje: 0 };
     }
-    porBarraca[p.barraca_id].pendentes.push({ id: p.id, wait_min: wait, cliente: p.clientes?.nome || '—', valor: p.valor_total, criado_em: p.criado_em });
+    porBarraca[p.barraca_id].pendentes.push({ id: p.id, wait_min: wait, cliente: p.clientes?.nome || '—', cliente_avatar: p.clientes?.avatar || null, valor: p.valor_total, criado_em: p.criado_em });
   });
 
   conf.forEach(p => { if (porBarraca[p.barraca_id]) porBarraca[p.barraca_id].confirmados_hoje++; });

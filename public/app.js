@@ -486,6 +486,12 @@ function setAvatarPart(parte, valor) {
   renderAvatarCustom();
 }
 
+// Avatar pequeno inline, para aparecer ao lado do nome do cliente em listas.
+function avatarInline(cfg, size = 26) {
+  if (!cfg) return '';
+  return `<span class="avatar-inline" style="width:${size}px;height:${size}px;">${AVATAR.render(cfg, size)}</span>`;
+}
+
 function renderAvatarHeader(cfg) {
   const el = document.getElementById('cliente-avatar-header');
   if (!el) return;
@@ -1040,7 +1046,7 @@ function renderResultadosEspecie(lista) {
   cont.innerHTML = lista.slice(0, 30).map(c => `
     <div style="cursor:pointer;padding:9px 10px;margin-bottom:6px;border:1px solid #d6e0f5;border-radius:8px;background:#fafbff;display:flex;justify-content:space-between;align-items:center;"
          onclick="selecionarClienteEspecie('${c.id}','${(c.nome || '').replace(/'/g, "\\'")}')">
-      <span style="color:#1E3A6E;font-weight:600;font-size:0.9rem;">${c.nome}</span>
+      <span style="color:#1E3A6E;font-weight:600;font-size:0.9rem;display:flex;align-items:center;gap:8px;">${avatarInline(c.avatar, 28)}${c.nome}</span>
       <span style="color:#3A6EC8;font-size:0.78rem;">Cód: ${c.codigo}</span>
     </div>
   `).join('');
@@ -1262,9 +1268,12 @@ async function gerenteCarregarPedidos() {
       return `
         <div class="pedido-card ${urgClass}">
           <div class="pedido-header">
-            <div style="flex:1;min-width:0;">
-              <div style="font-weight:700;color:#1E3A6E;font-size:1rem;">${nomeHeader}</div>
-              <div style="font-size:0.82rem;color:#3A6EC8;">${formatarHora(p.criado_em)}</div>
+            <div style="flex:1;min-width:0;display:flex;align-items:center;gap:10px;">
+              ${avatarInline(p.clientes?.avatar, 36)}
+              <div style="min-width:0;">
+                <div style="font-weight:700;color:#1E3A6E;font-size:1rem;">${nomeHeader}</div>
+                <div style="font-size:0.82rem;color:#3A6EC8;">${formatarHora(p.criado_em)}</div>
+              </div>
             </div>
             <div style="text-align:right;flex-shrink:0;">
               <div style="font-size:1.1rem;font-weight:700;color:${waitCor};white-space:nowrap;">⏱ ${waitLabel}</div>
@@ -1330,10 +1339,13 @@ async function gerenteCarregarHistorico() {
     return `
       <div style="border-left:4px solid ${cor};padding:10px 12px;margin-bottom:8px;background:#fafbff;border-radius:0 8px 8px 0;">
         <div style="display:flex;justify-content:space-between;align-items:start;">
-          <div>
-            <div style="font-weight:700;color:#1E3A6E;">${nomeCliente}</div>
-            <div style="font-size:0.8rem;color:${cor};font-weight:600;">${statusLabel[p.status] || p.status}</div>
-            ${extraInfo}
+          <div style="display:flex;align-items:center;gap:9px;">
+            ${avatarInline(p.clientes?.avatar, 32)}
+            <div>
+              <div style="font-weight:700;color:#1E3A6E;">${nomeCliente}</div>
+              <div style="font-size:0.8rem;color:${cor};font-weight:600;">${statusLabel[p.status] || p.status}</div>
+              ${extraInfo}
+            </div>
           </div>
           <div style="text-align:right;">
             <div style="font-weight:700;color:#C8A020;">${p.valor_total ?? '?'} 🌟</div>
@@ -1358,6 +1370,7 @@ async function carregarRelatorioBarraca() {
   if (!r.vendas.length) { cont.innerHTML = '<p style="color:#a0522d;text-align:center;">Nenhuma venda ainda</p>'; return; }
   cont.innerHTML = r.vendas.slice(0, 20).map(v => `
     <div class="hist-item">
+      ${avatarInline(v.clientes?.avatar, 30)}
       <div class="hist-info">
         <div class="hist-barraca">${v.clientes ? v.clientes.nome : '🪙 Venda em espécie'}</div>
         <div class="hist-hora">${formatarHora(v.timestamp)}</div>
@@ -1456,9 +1469,12 @@ function renderListaClientes(lista, titulo) {
     lista.slice(0, LIM).map(c => `
       <div class="card" style="cursor:pointer;padding:12px;margin-bottom:8px;" onclick="selecionarClienteCaixa('${c.id}')">
         <div style="display:flex;justify-content:space-between;align-items:center;">
-          <div>
-            <strong style="color:#1E3A6E;">${c.nome}</strong>
-            <span style="color:#3A6EC8;font-size:0.85rem;margin-left:8px;">Cód: ${c.codigo}</span>
+          <div style="display:flex;align-items:center;gap:10px;">
+            ${avatarInline(c.avatar, 34)}
+            <div>
+              <strong style="color:#1E3A6E;">${c.nome}</strong>
+              <span style="color:#3A6EC8;font-size:0.85rem;margin-left:8px;">Cód: ${c.codigo}</span>
+            </div>
           </div>
           <span style="font-weight:700;color:#C8A020;">${c.saldo} 🌟</span>
         </div>
@@ -1473,9 +1489,12 @@ async function selecionarClienteCaixa(id) {
   document.getElementById('caixa-busca').value = '';
   document.getElementById('caixa-cliente-info').innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
-      <div>
-        <div style="font-size:1.3rem;font-weight:700;">${c.nome}</div>
-        <div style="color:#a0522d;">Código: ${c.codigo}</div>
+      <div style="display:flex;align-items:center;gap:12px;">
+        ${avatarInline(c.avatar, 52)}
+        <div>
+          <div style="font-size:1.3rem;font-weight:700;">${c.nome}</div>
+          <div style="color:#a0522d;">Código: ${c.codigo}</div>
+        </div>
       </div>
       <div class="saldo-box" style="padding:14px 24px;margin:0;">
         <div class="saldo-label" style="font-size:0.85rem;">Saldo atual</div>
@@ -2179,7 +2198,7 @@ async function carregarMonitorPedidos() {
     const pedidosHtml = b.pendentes.slice(0, 5).map(p => {
       const wCor = urgCor(p.wait_min);
       return `<div style="display:flex;justify-content:space-between;font-size:0.8rem;padding:4px 0;border-bottom:1px solid #f0f0f0;">
-        <span style="color:#1E3A6E;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:55%;">${p.cliente}</span>
+        <span style="color:#1E3A6E;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:55%;display:flex;align-items:center;gap:6px;">${avatarInline(p.cliente_avatar, 22)}${p.cliente}</span>
         <span style="font-weight:700;color:${wCor};white-space:nowrap;">⏱ ${p.wait_min < 1 ? 'agora' : p.wait_min + 'min'} · ${p.valor ?? '?'} 🌟</span>
       </div>`;
     }).join('');
@@ -2409,7 +2428,7 @@ function renderTabelaClientes(clientes) {
     : '';
   document.getElementById('admin-clientes-tabela').innerHTML = aviso + sorted.slice(0, LIM).map(c => `
     <tr>
-      <td style="font-weight:600;">${c.nome}</td>
+      <td style="font-weight:600;"><span style="display:flex;align-items:center;gap:8px;">${avatarInline(c.avatar, 30)}${c.nome}</span></td>
       <td><span class="badge badge-yellow">${c.codigo}</span></td>
       <td style="text-align:right;font-weight:700;color:#C8A020;">${c.saldo} 🌟</td>
       <td style="text-align:center;">
@@ -2653,7 +2672,7 @@ async function filtrarTransacoes() {
       <tr>
         <td style="white-space:nowrap;">${formatarHora(t.timestamp)}</td>
         <td><span class="badge ${origem.badge}" style="white-space:nowrap;">${origem.texto}</span></td>
-        <td style="font-weight:600;">${t.clientes ? t.clientes.nome : '—'}</td>
+        <td style="font-weight:600;">${t.clientes ? `<span style="display:flex;align-items:center;gap:8px;">${avatarInline(t.clientes.avatar, 28)}${t.clientes.nome}</span>` : '—'}</td>
         <td>${localHtml}</td>
         <td style="font-size:0.85rem;max-width:200px;">${detalhes}</td>
         <td style="text-align:right;font-weight:700;white-space:nowrap;">${t.valor} 🌟</td>
@@ -2713,7 +2732,7 @@ async function gerarFecharCaixa() {
 
   document.getElementById('fechar-caixa-tx').innerHTML = (r.transacoes || []).map(t => `
     <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #D0DCFF;font-size:0.9rem;">
-      <span>${formatarHora(t.timestamp)} ${t.tipo === 'venda' ? '🔴' : '🟢'} ${t.clientes ? t.clientes.nome : '—'} ${t.barracas ? '→ ' + (t.barracas.emoji||'') + ' ' + t.barracas.nome : ''}</span>
+      <span style="display:flex;align-items:center;gap:6px;">${formatarHora(t.timestamp)} ${t.tipo === 'venda' ? '🔴' : '🟢'} ${avatarInline(t.clientes?.avatar, 24)}${t.clientes ? t.clientes.nome : '—'} ${t.barracas ? '→ ' + (t.barracas.emoji||'') + ' ' + t.barracas.nome : ''}</span>
       <span style="font-weight:700;">${t.valor} 🌟</span>
     </div>
   `).join('') || '<p style="color:#9aaccc;text-align:center;">Nenhuma transação</p>';
