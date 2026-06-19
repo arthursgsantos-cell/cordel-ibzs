@@ -487,9 +487,29 @@ function setAvatarPart(parte, valor) {
 }
 
 // Avatar pequeno inline, para aparecer ao lado do nome do cliente em listas.
-function avatarInline(cfg, size = 26) {
+function avatarInline(cfg, size = 26, nome = '') {
   if (!cfg) return '';
-  return `<span class="avatar-inline" style="width:${size}px;height:${size}px;">${AVATAR.render(cfg, size)}</span>`;
+  const nomeAttr = nome ? ` data-nome="${String(nome).replace(/"/g, '&quot;')}"` : '';
+  return `<span class="avatar-inline avatar-clicavel" style="width:${size}px;height:${size}px;" onclick="abrirAvatarPopup(this, event)" title="Ver foto maior"${nomeAttr}>${AVATAR.render(cfg, size)}</span>`;
+}
+
+// Amplia o avatar/foto do cliente num popup (para caixa, gerente e admin
+// verem melhor o cliente). Reaproveita o SVG já renderizado, ampliado.
+function abrirAvatarPopup(el, ev) {
+  if (ev) ev.stopPropagation(); // não dispara o clique do card ao redor
+  const svg = el && el.querySelector('svg');
+  if (!svg) return;
+  const clone = svg.cloneNode(true);
+  clone.setAttribute('width', '260');
+  clone.setAttribute('height', '260');
+  const nome = el.getAttribute('data-nome') || '';
+  document.getElementById('avatar-popup-img').innerHTML = clone.outerHTML;
+  document.getElementById('avatar-popup-nome').textContent = nome;
+  document.getElementById('modal-avatar-popup').classList.remove('hidden');
+}
+
+function fecharAvatarPopup() {
+  document.getElementById('modal-avatar-popup').classList.add('hidden');
 }
 
 function renderAvatarHeader(cfg) {
@@ -1046,7 +1066,7 @@ function renderResultadosEspecie(lista) {
   cont.innerHTML = lista.slice(0, 30).map(c => `
     <div style="cursor:pointer;padding:9px 10px;margin-bottom:6px;border:1px solid #d6e0f5;border-radius:8px;background:#fafbff;display:flex;justify-content:space-between;align-items:center;"
          onclick="selecionarClienteEspecie('${c.id}','${(c.nome || '').replace(/'/g, "\\'")}')">
-      <span style="color:#1E3A6E;font-weight:600;font-size:0.9rem;display:flex;align-items:center;gap:8px;">${avatarInline(c.avatar, 28)}${c.nome}</span>
+      <span style="color:#1E3A6E;font-weight:600;font-size:0.9rem;display:flex;align-items:center;gap:8px;">${avatarInline(c.avatar, 28, c.nome)}${c.nome}</span>
       <span style="color:#3A6EC8;font-size:0.78rem;">Cód: ${c.codigo}</span>
     </div>
   `).join('');
@@ -1265,14 +1285,25 @@ async function gerenteCarregarPedidos() {
       const nomeHeader = especie
         ? (p.clientes ? '🪙 ' + p.clientes.nome : '🪙 Espécie')
         : (p.clientes ? p.clientes.nome : 'Cliente');
+      const estaPronto = p.status === 'pronto';
+      const nomeCli = (p.clientes?.nome || 'Espécie').replace(/'/g, "\\'");
+      // Faixa de status do pedido
+      const statusBadge = estaPronto
+        ? '<div style="font-size:0.8rem;color:#16a34a;font-weight:700;margin-top:2px;">📦 Pronto · aguardando retirada</div>'
+        : '<div style="font-size:0.8rem;color:#E8458C;font-weight:600;margin-top:2px;">🍳 Em preparo</div>';
+      // Botões conforme o estado: pendente → marcar pronto; pronto → confirmar entrega
+      const botaoAcao = estaPronto
+        ? `<button class="btn btn-success btn-sm" style="flex:2;" onclick="gerenteConfirmarPedido('${p.id}')">📬 Confirmar Entrega</button>`
+        : `<button class="btn btn-primary btn-sm" style="flex:2;" onclick="gerenteMarcarPronto('${p.id}')">📦 Marcar Pronto</button>`;
       return `
-        <div class="pedido-card ${urgClass}">
+        <div class="pedido-card ${urgClass}${estaPronto ? ' pedido-pronto' : ''}">
           <div class="pedido-header">
             <div style="flex:1;min-width:0;display:flex;align-items:center;gap:10px;">
-              ${avatarInline(p.clientes?.avatar, 36)}
+              ${avatarInline(p.clientes?.avatar, 36, p.clientes?.nome)}
               <div style="min-width:0;">
                 <div style="font-weight:700;color:#1E3A6E;font-size:1rem;">${nomeHeader}</div>
                 <div style="font-size:0.82rem;color:#3A6EC8;">${formatarHora(p.criado_em)}</div>
+                ${statusBadge}
               </div>
             </div>
             <div style="text-align:right;flex-shrink:0;">
@@ -1282,8 +1313,8 @@ async function gerenteCarregarPedidos() {
           </div>
           <div class="pedido-itens">${itens.map(i => `<span class="pedido-item-tag">${i.qty}x ${i.nome}</span>`).join('')}</div>
           <div style="display:flex;gap:8px;margin-top:12px;">
-            <button class="btn btn-success btn-sm" style="flex:2;" onclick="gerenteConfirmarPedido('${p.id}')">✅ Confirmar</button>
-            <button class="btn btn-danger btn-sm" style="flex:1;" onclick="gerenteCancelarPedido('${p.id}','${(p.clientes?.nome||'Espécie').replace(/'/g,"\\'")}')">✖</button>
+            ${botaoAcao}
+            <button class="btn btn-danger btn-sm" style="flex:1;" onclick="gerenteCancelarPedido('${p.id}','${nomeCli}')">✖</button>
           </div>
         </div>
       `;
@@ -1302,10 +1333,20 @@ async function gerenteCancelarPedido(pedidoId, nomeCliente) {
   }
 }
 
+async function gerenteMarcarPronto(pedidoId) {
+  const res = await api('/api/pedidos/' + pedidoId + '/pronto', 'POST');
+  if (res.ok) {
+    toast('📦 Pedido pronto! O cliente foi avisado para retirar.', 'success');
+    gerenteCarregarPedidos();
+  } else {
+    toast(res.error || 'Erro ao marcar como pronto!', 'error');
+  }
+}
+
 async function gerenteConfirmarPedido(pedidoId) {
   const res = await api('/api/pedidos/' + pedidoId + '/confirmar', 'POST');
   if (res.ok) {
-    toast('✅ Pedido confirmado! O cliente pode retirar.', 'success');
+    toast('✅ Entrega confirmada!', 'success');
     gerenteCarregarPedidos();
     carregarRelatorioBarraca();
   } else {
@@ -1322,8 +1363,8 @@ async function gerenteCarregarHistorico() {
     cont.innerHTML = '<p style="color:#a0522d;text-align:center;">Nenhum pedido ainda</p>';
     return;
   }
-  const statusLabel = { pendente: '🕐 Aguardando', confirmado: '✅ Entregue', cancelado: '❌ Cancelado' };
-  const statusCor   = { pendente: '#E8458C', confirmado: '#16a34a' };
+  const statusLabel = { pendente: '🕐 Aguardando', pronto: '📦 Pronto p/ retirada', confirmado: '✅ Entregue', cancelado: '❌ Cancelado' };
+  const statusCor   = { pendente: '#E8458C', pronto: '#16a34a', confirmado: '#16a34a' };
   cont.innerHTML = pedidos.map(p => {
     let itens = [];
     try { itens = JSON.parse(p.itens || '[]'); } catch {}
@@ -1340,7 +1381,7 @@ async function gerenteCarregarHistorico() {
       <div style="border-left:4px solid ${cor};padding:10px 12px;margin-bottom:8px;background:#fafbff;border-radius:0 8px 8px 0;">
         <div style="display:flex;justify-content:space-between;align-items:start;">
           <div style="display:flex;align-items:center;gap:9px;">
-            ${avatarInline(p.clientes?.avatar, 32)}
+            ${avatarInline(p.clientes?.avatar, 32, nomeCliente)}
             <div>
               <div style="font-weight:700;color:#1E3A6E;">${nomeCliente}</div>
               <div style="font-size:0.8rem;color:${cor};font-weight:600;">${statusLabel[p.status] || p.status}</div>
@@ -1370,7 +1411,7 @@ async function carregarRelatorioBarraca() {
   if (!r.vendas.length) { cont.innerHTML = '<p style="color:#a0522d;text-align:center;">Nenhuma venda ainda</p>'; return; }
   cont.innerHTML = r.vendas.slice(0, 20).map(v => `
     <div class="hist-item">
-      ${avatarInline(v.clientes?.avatar, 30)}
+      ${avatarInline(v.clientes?.avatar, 30, v.clientes?.nome)}
       <div class="hist-info">
         <div class="hist-barraca">${v.clientes ? v.clientes.nome : '🪙 Venda em espécie'}</div>
         <div class="hist-hora">${formatarHora(v.timestamp)}</div>
@@ -1470,7 +1511,7 @@ function renderListaClientes(lista, titulo) {
       <div class="card" style="cursor:pointer;padding:12px;margin-bottom:8px;" onclick="selecionarClienteCaixa('${c.id}')">
         <div style="display:flex;justify-content:space-between;align-items:center;">
           <div style="display:flex;align-items:center;gap:10px;">
-            ${avatarInline(c.avatar, 34)}
+            ${avatarInline(c.avatar, 34, c.nome)}
             <div>
               <strong style="color:#1E3A6E;">${c.nome}</strong>
               <span style="color:#3A6EC8;font-size:0.85rem;margin-left:8px;">Cód: ${c.codigo}</span>
@@ -1490,7 +1531,7 @@ async function selecionarClienteCaixa(id) {
   document.getElementById('caixa-cliente-info').innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
       <div style="display:flex;align-items:center;gap:12px;">
-        ${avatarInline(c.avatar, 52)}
+        ${avatarInline(c.avatar, 52, c.nome)}
         <div>
           <div style="font-size:1.3rem;font-weight:700;">${c.nome}</div>
           <div style="color:#a0522d;">Código: ${c.codigo}</div>
@@ -1513,7 +1554,13 @@ function abrirRecarga(ev, tipo) {
   ev.currentTarget.classList.add('active');
 }
 
+let _recargaEmAndamento = false;
+
 async function confirmarRecarga(forma) {
+  // Trava contra duplo clique: enquanto uma recarga está sendo processada,
+  // novos cliques são ignorados (evita recarga duplicada).
+  if (_recargaEmAndamento) return;
+
   if (!estado.caixaClienteId) { toast('Selecione um cliente!', 'error'); return; }
 
   let valor = 0;
@@ -1526,24 +1573,34 @@ async function confirmarRecarga(forma) {
 
   if (!valor || valor <= 0) { toast('Valor inválido!', 'error'); return; }
 
-  const res = await api('/api/clientes/' + estado.caixaClienteId + '/recarregar', 'POST', { valor, forma, operador: estado.operadorNome || null });
-  if (res.saldo !== undefined) {
-    chuvaDeMoedas();
-    toast(`✅ Recarga de ${valor} Alegrias realizada!`, 'success');
-    selecionarClienteCaixa(estado.caixaClienteId);
-    // Limpa campos
-    document.getElementById('recarga-dinheiro-valor').value = '';
-    document.getElementById('recarga-dinheiro-recebido').value = '';
-    document.getElementById('recarga-dinheiro-alegrias').value = '';
-    document.getElementById('troco-box').style.display = 'none';
-    document.getElementById('pix-qr-img').style.display = 'none';
-    document.getElementById('pix-qr-placeholder').style.display = 'block';
-    document.getElementById('pix-valor-destaque').style.display = 'none';
-    document.getElementById('recarga-pix-valor').value = '';
-    document.getElementById('recarga-cartao-valor').value = '';
-    document.getElementById('pix-confirmado').checked = false;
-  } else {
-    toast('Erro na recarga!', 'error');
+  // Bloqueia novas confirmações e desabilita os botões enquanto processa
+  _recargaEmAndamento = true;
+  const botoesRecarga = document.querySelectorAll('.recarga-panel .btn-success');
+  botoesRecarga.forEach(b => { b.disabled = true; b.style.opacity = '0.6'; });
+
+  try {
+    const res = await api('/api/clientes/' + estado.caixaClienteId + '/recarregar', 'POST', { valor, forma, operador: estado.operadorNome || null });
+    if (res.saldo !== undefined) {
+      chuvaDeMoedas();
+      toast(`✅ Recarga de ${valor} Alegrias realizada!`, 'success');
+      selecionarClienteCaixa(estado.caixaClienteId);
+      // Limpa campos
+      document.getElementById('recarga-dinheiro-valor').value = '';
+      document.getElementById('recarga-dinheiro-recebido').value = '';
+      document.getElementById('recarga-dinheiro-alegrias').value = '';
+      document.getElementById('troco-box').style.display = 'none';
+      document.getElementById('pix-qr-img').style.display = 'none';
+      document.getElementById('pix-qr-placeholder').style.display = 'block';
+      document.getElementById('pix-valor-destaque').style.display = 'none';
+      document.getElementById('recarga-pix-valor').value = '';
+      document.getElementById('recarga-cartao-valor').value = '';
+      document.getElementById('pix-confirmado').checked = false;
+    } else {
+      toast('Erro na recarga!', 'error');
+    }
+  } finally {
+    _recargaEmAndamento = false;
+    botoesRecarga.forEach(b => { b.disabled = false; b.style.opacity = ''; });
   }
 }
 
@@ -1876,6 +1933,19 @@ function restaurarTabCliente() {
 }
 
 // ── Cliente: Pedidos ──────────────────────────────────────────────
+let _pedidosProntosVistos = new Set();
+
+async function clienteConfirmarRecebimento(pedidoId) {
+  if (!confirm('Confirmar que você já recebeu este pedido?')) return;
+  const res = await api('/api/pedidos/' + pedidoId + '/receber', 'POST', { cliente_id: estado.clienteId });
+  if (res.ok) {
+    toast('✅ Recebimento confirmado. Bom proveito!', 'success');
+    carregarPedidosCliente();
+  } else {
+    toast(res.error || 'Erro ao confirmar recebimento!', 'error');
+  }
+}
+
 async function carregarPedidosCliente() {
   if (!estado.clienteId) return;
   const pedidos = await api('/api/pedidos/cliente/' + estado.clienteId);
@@ -1887,9 +1957,23 @@ async function carregarPedidosCliente() {
     return;
   }
 
-  const pendentes  = pedidos.filter(p => p.status === 'pendente');
+  const pendentes  = pedidos.filter(p => p.status === 'pendente' || p.status === 'pronto');
   const entregues  = pedidos.filter(p => p.status === 'confirmado');
   const cancelados = pedidos.filter(p => p.status === 'cancelado');
+
+  // Avisa o cliente quando um pedido fica pronto para retirada
+  const prontosAgora = pedidos.filter(p => p.status === 'pronto').map(p => p.id);
+  prontosAgora.forEach(id => {
+    if (!_pedidosProntosVistos.has(id)) {
+      const ped = pedidos.find(p => p.id === id);
+      const nomeBarraca = ped?.barracas ? ped.barracas.emoji + ' ' + ped.barracas.nome : 'sua barraca';
+      toast(`📦 Seu pedido está pronto! Retire em ${nomeBarraca}`, 'success');
+      if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+        new Notification('📦 Pedido pronto!', { body: `Retire em ${nomeBarraca}`, icon: '/favicon.ico' });
+      }
+    }
+  });
+  _pedidosProntosVistos = new Set(prontosAgora);
 
   if (!pendentes.length) {
     cont.innerHTML = '<p style="color:#a0522d;text-align:center;">Nenhum pedido em andamento</p>';
@@ -1899,12 +1983,22 @@ async function carregarPedidosCliente() {
       try { itens = JSON.parse(p.itens || '[]'); } catch {}
       const especie = itens.some(i => i && i._forma === 'especie');
       const tagEspecie = especie ? '<div style="font-size:0.75rem;color:#C8A020;font-weight:600;margin-top:2px;">🪙 Pago em espécie</div>' : '';
+      const estaPronto = p.status === 'pronto';
+      const corBorda = estaPronto ? '#16a34a' : '#E8458C';
+      const statusLinha = estaPronto
+        ? '<div style="font-size:0.9rem;color:#16a34a;font-weight:700;margin-top:2px;">📦 Pronto para retirada!</div>'
+        : '<div style="font-size:0.85rem;color:#E8458C;font-weight:600;margin-top:2px;">🕐 Aguardando preparo...</div>';
+      // Cliente pode confirmar o recebimento (caso o gerente não tenha marcado)
+      const botaoReceber = `
+        <button class="btn btn-success btn-sm" style="width:100%;margin-top:10px;" onclick="clienteConfirmarRecebimento('${p.id}')">
+          ✅ Confirmar recebimento
+        </button>`;
       return `
-        <div class="pedido-card-cliente" style="border-left:5px solid #E8458C;">
+        <div class="pedido-card-cliente${estaPronto ? ' pedido-pronto' : ''}" style="border-left:5px solid ${corBorda};">
           <div style="display:flex;justify-content:space-between;align-items:start;">
             <div>
               <div style="font-weight:700;color:#1E3A6E;">${p.barracas ? p.barracas.emoji + ' ' + p.barracas.nome : '—'}</div>
-              <div style="font-size:0.85rem;color:#E8458C;font-weight:600;margin-top:2px;">🕐 Aguardando preparo...</div>
+              ${statusLinha}
               ${tagEspecie}
             </div>
             <div style="text-align:right;">
@@ -1915,6 +2009,7 @@ async function carregarPedidosCliente() {
           <div style="margin-top:6px;font-size:0.88rem;color:#3A6EC8;">
             ${itens.map(i => `${i.qty}x ${i.nome}`).join(' · ')}
           </div>
+          ${botaoReceber}
         </div>
       `;
     }).join('');
@@ -2198,7 +2293,7 @@ async function carregarMonitorPedidos() {
     const pedidosHtml = b.pendentes.slice(0, 5).map(p => {
       const wCor = urgCor(p.wait_min);
       return `<div style="display:flex;justify-content:space-between;font-size:0.8rem;padding:4px 0;border-bottom:1px solid #f0f0f0;">
-        <span style="color:#1E3A6E;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:55%;display:flex;align-items:center;gap:6px;">${avatarInline(p.cliente_avatar, 22)}${p.cliente}</span>
+        <span style="color:#1E3A6E;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:55%;display:flex;align-items:center;gap:6px;">${avatarInline(p.cliente_avatar, 22, p.cliente)}${p.cliente}</span>
         <span style="font-weight:700;color:${wCor};white-space:nowrap;">⏱ ${p.wait_min < 1 ? 'agora' : p.wait_min + 'min'} · ${p.valor ?? '?'} 🌟</span>
       </div>`;
     }).join('');
@@ -2428,7 +2523,7 @@ function renderTabelaClientes(clientes) {
     : '';
   document.getElementById('admin-clientes-tabela').innerHTML = aviso + sorted.slice(0, LIM).map(c => `
     <tr>
-      <td style="font-weight:600;"><span style="display:flex;align-items:center;gap:8px;">${avatarInline(c.avatar, 30)}${c.nome}</span></td>
+      <td style="font-weight:600;"><span style="display:flex;align-items:center;gap:8px;">${avatarInline(c.avatar, 30, c.nome)}${c.nome}</span></td>
       <td><span class="badge badge-yellow">${c.codigo}</span></td>
       <td style="text-align:right;font-weight:700;color:#C8A020;">${c.saldo} 🌟</td>
       <td style="text-align:center;">
@@ -2672,7 +2767,7 @@ async function filtrarTransacoes() {
       <tr>
         <td style="white-space:nowrap;">${formatarHora(t.timestamp)}</td>
         <td><span class="badge ${origem.badge}" style="white-space:nowrap;">${origem.texto}</span></td>
-        <td style="font-weight:600;">${t.clientes ? `<span style="display:flex;align-items:center;gap:8px;">${avatarInline(t.clientes.avatar, 28)}${t.clientes.nome}</span>` : '—'}</td>
+        <td style="font-weight:600;">${t.clientes ? `<span style="display:flex;align-items:center;gap:8px;">${avatarInline(t.clientes.avatar, 28, t.clientes.nome)}${t.clientes.nome}</span>` : '—'}</td>
         <td>${localHtml}</td>
         <td style="font-size:0.85rem;max-width:200px;">${detalhes}</td>
         <td style="text-align:right;font-weight:700;white-space:nowrap;">${t.valor} 🌟</td>
@@ -2732,7 +2827,7 @@ async function gerarFecharCaixa() {
 
   document.getElementById('fechar-caixa-tx').innerHTML = (r.transacoes || []).map(t => `
     <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #D0DCFF;font-size:0.9rem;">
-      <span style="display:flex;align-items:center;gap:6px;">${formatarHora(t.timestamp)} ${t.tipo === 'venda' ? '🔴' : '🟢'} ${avatarInline(t.clientes?.avatar, 24)}${t.clientes ? t.clientes.nome : '—'} ${t.barracas ? '→ ' + (t.barracas.emoji||'') + ' ' + t.barracas.nome : ''}</span>
+      <span style="display:flex;align-items:center;gap:6px;">${formatarHora(t.timestamp)} ${t.tipo === 'venda' ? '🔴' : '🟢'} ${avatarInline(t.clientes?.avatar, 24, t.clientes?.nome)}${t.clientes ? t.clientes.nome : '—'} ${t.barracas ? '→ ' + (t.barracas.emoji||'') + ' ' + t.barracas.nome : ''}</span>
       <span style="font-weight:700;">${t.valor} 🌟</span>
     </div>
   `).join('') || '<p style="color:#9aaccc;text-align:center;">Nenhuma transação</p>';

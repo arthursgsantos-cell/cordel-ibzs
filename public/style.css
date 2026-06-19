@@ -130,6 +130,8 @@ body {
   box-shadow: 0 1px 3px rgba(30,58,110,0.2);
 }
 .avatar-inline .avatar-svg { display: block; width: 100%; height: 100%; }
+.avatar-clicavel { cursor: pointer; transition: transform 0.12s ease; }
+.avatar-clicavel:hover { transform: scale(1.12); }
 
 /* ── AVATAR: no modal Meu QR Code ── */
 .meu-qr-avatar { display: flex; justify-content: center; margin-bottom: 10px; }
@@ -483,6 +485,7 @@ tr:hover td { background: #F5F8FF; }
   box-shadow: 0 2px 12px rgba(30,58,110,0.12);
   transition: border-color 0.4s;
 }
+.pedido-pronto { border-color: #16a34a !important; background: #f0fdf4; }
 .pedido-aviso  { border-color: #d97706 !important; background: #fffbeb; }
 .pedido-alerta { border-color: #ea580c !important; background: #fff7ed; }
 .pedido-urgente {

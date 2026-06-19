@@ -1397,26 +1397,66 @@ app.post('/api/pedidos', async (req, res) => {
   });
 });
 
-// Pedidos pendentes de uma barraca (para o gerente)
+// Pedidos em aberto de uma barraca (para o gerente): aguardando preparo
+// (pendente) e prontos aguardando retirada (pronto)
 app.get('/api/pedidos/pendentes/:barracaId', async (req, res) => {
   const { data, error } = await supabase
     .from('pedidos')
     .select('*, clientes(nome,codigo,avatar)')
     .eq('barraca_id', req.params.barracaId)
-    .eq('status', 'pendente')
+    .in('status', ['pendente', 'pronto'])
     .order('criado_em', { ascending: true });
   if (error) return res.status(500).json({ error: error.message });
   res.json(data || []);
 });
 
-// Confirmar pedido (gerente marca como entregue)
-// NÃO cria transacao — pedidos confirmados são contados diretamente no relatorio
-// para evitar dupla contagem com transacoes de QR
+// Marcar pedido como PRONTO para retirada (gerente).
+// Avisa o cliente de que pode ir à barraca buscar.
+app.post('/api/pedidos/:id/pronto', async (req, res) => {
+  const { data: pedido, error: pe } = await supabase
+    .from('pedidos').select('*').eq('id', req.params.id).single();
+  if (pe || !pedido) return res.status(404).json({ error: 'Pedido não encontrado' });
+  if (pedido.status !== 'pendente') return res.status(400).json({ error: 'Pedido não está pendente' });
+
+  const { error: ue } = await supabase
+    .from('pedidos').update({ status: 'pronto' }).eq('id', req.params.id);
+  if (ue) return res.status(500).json({ error: ue.message });
+
+  res.json({ ok: true });
+});
+
+// Confirmar ENTREGA do pedido (gerente marca como entregue).
+// Aceita pedidos pendentes ou prontos (gerente pode entregar direto sem
+// passar pela etapa "pronto"). NÃO cria transacao — pedidos confirmados
+// são contados diretamente no relatorio para evitar dupla contagem com QR.
 app.post('/api/pedidos/:id/confirmar', async (req, res) => {
   const { data: pedido, error: pe } = await supabase
     .from('pedidos').select('*').eq('id', req.params.id).single();
   if (pe || !pedido) return res.status(404).json({ error: 'Pedido não encontrado' });
-  if (pedido.status !== 'pendente') return res.status(400).json({ error: 'Pedido já confirmado' });
+  if (!['pendente', 'pronto'].includes(pedido.status)) {
+    return res.status(400).json({ error: 'Pedido já foi entregue ou cancelado' });
+  }
+
+  const { error: ue } = await supabase
+    .from('pedidos').update({ status: 'confirmado' }).eq('id', req.params.id);
+  if (ue) return res.status(500).json({ error: ue.message });
+
+  res.json({ ok: true });
+});
+
+// Cliente confirma RECEBIMENTO do próprio pedido (caso o gerente não tenha
+// marcado a entrega). Só o dono do pedido pode confirmar.
+app.post('/api/pedidos/:id/receber', async (req, res) => {
+  const { cliente_id } = req.body;
+  const { data: pedido, error: pe } = await supabase
+    .from('pedidos').select('*').eq('id', req.params.id).single();
+  if (pe || !pedido) return res.status(404).json({ error: 'Pedido não encontrado' });
+  if (cliente_id && String(pedido.cliente_id) !== String(cliente_id)) {
+    return res.status(403).json({ error: 'Este pedido não é seu' });
+  }
+  if (!['pendente', 'pronto'].includes(pedido.status)) {
+    return res.status(400).json({ error: 'Pedido já foi entregue ou cancelado' });
+  }
 
   const { error: ue } = await supabase
     .from('pedidos').update({ status: 'confirmado' }).eq('id', req.params.id);
@@ -1431,7 +1471,7 @@ app.post('/api/pedidos/:id/cancelar', async (req, res) => {
   const { data: pedido, error: pe } = await supabase
     .from('pedidos').select('*').eq('id', req.params.id).single();
   if (pe || !pedido) return res.status(404).json({ error: 'Pedido não encontrado' });
-  if (pedido.status !== 'pendente') return res.status(400).json({ error: 'Apenas pedidos pendentes podem ser cancelados' });
+  if (!['pendente', 'pronto'].includes(pedido.status)) return res.status(400).json({ error: 'Apenas pedidos pendentes ou prontos podem ser cancelados' });
 
   // Estorna saldo ao cliente — SOMENTE para pedidos pagos em Alegrias.
   // Vendas em espécie foram pagas em dinheiro: estornar saldo creditaria

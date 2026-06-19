@@ -127,6 +127,15 @@
   </div>
 </div>
 
+<!-- Popup: foto/avatar do cliente ampliado (caixa, gerente, admin) -->
+<div id="modal-avatar-popup" class="modal-overlay hidden" style="z-index:1200;" onclick="fecharAvatarPopup()">
+  <div class="modal-box" style="max-width:320px;" onclick="event.stopPropagation()">
+    <div id="avatar-popup-img" style="display:flex;justify-content:center;margin-bottom:12px;"></div>
+    <div id="avatar-popup-nome" style="font-size:1.2rem;font-weight:700;color:#1E3A6E;margin-bottom:16px;"></div>
+    <button class="btn btn-primary btn-sm" style="width:100%;" onclick="fecharAvatarPopup()">Fechar</button>
+  </div>
+</div>
+
 <!-- ═══════════════════════════════════════════════════════════════
      TELA LOGIN
 ══════════════════════════════════════════════════════════════════ -->
