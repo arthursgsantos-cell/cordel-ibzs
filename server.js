@@ -12,6 +12,77 @@ app.use(express.json({ charset: 'utf-8' }));
 app.use(express.urlencoded({ extended: true, charset: 'utf-8' }));
 app.use(express.static('public'));
 
+// ════════════════════════════════════════════════════════════════════════════
+//  SEGURANÇA — autorização de staff + anti-flood (em memória, sem dependências)
+//  Contexto: antes, TODAS as rotas eram públicas. Um bot criou ~950 contas e
+//  setou 50.000 de saldo via PUT /api/clientes/:id. Aqui exigimos o código de
+//  admin/caixa (header x-staff-codigo) nas ações sensíveis e limitamos a taxa.
+// ════════════════════════════════════════════════════════════════════════════
+function ipDe(req) {
+  return (req.headers['x-forwarded-for'] || '').split(',')[0].trim()
+    || req.socket?.remoteAddress || 'desconhecido';
+}
+
+// Limitador de taxa por IP+rota (janela deslizante simples).
+const _hits = new Map();
+function rateLimit(nome, windowMs, max) {
+  return (req, res, next) => {
+    const key = nome + ':' + ipDe(req);
+    const now = Date.now();
+    let e = _hits.get(key);
+    if (!e || now - e.start > windowMs) { e = { start: now, count: 0 }; _hits.set(key, e); }
+    e.count++;
+    if (e.count > max) {
+      res.set('Retry-After', String(Math.ceil((e.start + windowMs - now) / 1000)));
+      return res.status(429).json({ error: 'Muitas requisições. Aguarde um momento e tente de novo.' });
+    }
+    next();
+  };
+}
+
+// Bloqueio progressivo após muitas falhas de código (anti força-bruta no PIN).
+const _staffFails = new Map();
+function staffBloqueado(req) {
+  const f = _staffFails.get(ipDe(req));
+  return !!(f && Date.now() - f.start < 600000 && f.count >= 25);
+}
+function registrarFalhaStaff(req) {
+  const ip = ipDe(req); const now = Date.now();
+  let f = _staffFails.get(ip);
+  if (!f || now - f.start > 600000) { f = { start: now, count: 0 }; _staffFails.set(ip, f); }
+  f.count++;
+}
+
+// Retorna 'admin' | 'caixa' | null conforme o código enviado no header.
+async function checkStaff(req) {
+  const codigo = String(req.headers['x-staff-codigo'] || (req.body && req.body.staffCodigo) || '').trim();
+  if (!codigo) return null;
+  if (codigo === await getSenha('admin')) return 'admin';
+  if (codigo === await getSenha('caixa')) return 'caixa';
+  return null;
+}
+async function requireStaff(req, res, next) {
+  if (staffBloqueado(req)) return res.status(429).json({ error: 'Bloqueado temporariamente por excesso de tentativas.' });
+  const perfil = await checkStaff(req);
+  if (!perfil) { registrarFalhaStaff(req); return res.status(401).json({ error: 'Não autorizado' }); }
+  req.staffPerfil = perfil;
+  next();
+}
+async function requireAdmin(req, res, next) {
+  if (staffBloqueado(req)) return res.status(429).json({ error: 'Bloqueado temporariamente por excesso de tentativas.' });
+  const perfil = await checkStaff(req);
+  if (perfil !== 'admin') { if (!perfil) registrarFalhaStaff(req); return res.status(perfil ? 403 : 401).json({ error: perfil ? 'Requer perfil admin' : 'Não autorizado' }); }
+  req.staffPerfil = perfil;
+  next();
+}
+
+// Limpeza periódica dos mapas em memória.
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of _hits) if (now - v.start > 900000) _hits.delete(k);
+  for (const [k, v] of _staffFails) if (now - v.start > 900000) _staffFails.delete(k);
+}, 300000).unref();
+
 // ── Helper: decrementa estoque de uma lista de itens ─────────────────────────
 async function decrementarEstoque(itens, barracaId) {
   if (!Array.isArray(itens)) return;
@@ -152,7 +223,14 @@ app.put('/api/clientes/:id', async (req, res) => {
   const { nome, saldo, pin, avatar } = req.body;
   const updates = {};
   if (nome !== undefined) updates.nome = nome.trim();
-  if (saldo !== undefined && !isNaN(saldo)) updates.saldo = parseFloat(saldo);
+  // Alterar SALDO é exclusivo de staff (admin/caixa) — este foi o vetor da fraude.
+  // O cliente continua podendo atualizar o próprio nome/PIN/avatar sem código.
+  if (saldo !== undefined && !isNaN(saldo)) {
+    if (staffBloqueado(req)) return res.status(429).json({ error: 'Bloqueado temporariamente por excesso de tentativas.' });
+    const perfil = await checkStaff(req);
+    if (!perfil) { registrarFalhaStaff(req); return res.status(401).json({ error: 'Não autorizado a alterar saldo' }); }
+    updates.saldo = parseFloat(saldo);
+  }
   if (pin !== undefined && pin !== '' && /^\d{4}$/.test(String(pin))) {
     updates.pin_hash = hashPin(String(pin));
   }
@@ -163,7 +241,7 @@ app.put('/api/clientes/:id', async (req, res) => {
   res.json(data);
 });
 
-app.delete('/api/clientes/:id', async (req, res) => {
+app.delete('/api/clientes/:id', requireAdmin, async (req, res) => {
   const { data: cliente } = await supabase.from('clientes').select('id,nome,saldo').eq('id', req.params.id).single();
   await supabase.from('transacoes').delete().eq('cliente_id', req.params.id);
   await supabase.from('pedidos').delete().eq('cliente_id', req.params.id);
@@ -173,7 +251,7 @@ app.delete('/api/clientes/:id', async (req, res) => {
   res.json({ ok: true });
 });
 
-app.delete('/api/clientes', async (req, res) => {
+app.delete('/api/clientes', requireAdmin, async (req, res) => {
   const { data: clientes } = await supabase.from('clientes').select('id,nome,saldo');
   await supabase.from('transacoes').delete().neq('id', '00000000-0000-0000-0000-000000000000');
   await supabase.from('pedidos').delete().neq('id', 0);
@@ -185,7 +263,7 @@ app.delete('/api/clientes', async (req, res) => {
   res.json({ ok: true, total: clientes?.length || 0 });
 });
 
-app.delete('/api/transacoes', async (req, res) => {
+app.delete('/api/transacoes', requireAdmin, async (req, res) => {
   // A view unificada exibe transacoes + pedidos confirmados; apaga ambos
   const { data: tx, error: selErr } = await supabase.from('transacoes').select('id,tipo,valor');
   if (selErr) console.error('[DELETE transacoes] select error:', selErr.message);
@@ -205,7 +283,7 @@ app.delete('/api/transacoes', async (req, res) => {
 });
 
 // ── RESET GERAL (apaga dados de teste, mantém barracas e produtos) ────────────
-app.post('/api/admin/reset-evento', async (req, res) => {
+app.post('/api/admin/reset-evento', requireAdmin, async (req, res) => {
   const { confirmacao } = req.body;
   if (confirmacao !== 'RESETAR') return res.status(400).json({ error: 'Envie { confirmacao: "RESETAR" } para confirmar' });
 
@@ -304,7 +382,7 @@ async function seedConfigSenhas() {
 }
 
 // Login de caixa/admin validado no servidor (antes era hardcoded no frontend)
-app.post('/api/auth/perfil', async (req, res) => {
+app.post('/api/auth/perfil', rateLimit('auth', 60000, 20), async (req, res) => {
   const { perfil, codigo } = req.body;
   if (!['admin', 'caixa'].includes(perfil)) return res.status(400).json({ error: 'Perfil inválido' });
   if (!codigo) return res.status(400).json({ error: 'Código obrigatório' });
@@ -313,7 +391,7 @@ app.post('/api/auth/perfil', async (req, res) => {
   res.json({ ok: true, perfil });
 });
 
-app.get('/api/admin/senhas', async (req, res) => {
+app.get('/api/admin/senhas', requireAdmin, async (req, res) => {
   res.json({
     admin: await getSenha('admin'),
     caixa: await getSenha('caixa'),
@@ -321,7 +399,7 @@ app.get('/api/admin/senhas', async (req, res) => {
   });
 });
 
-app.put('/api/admin/senhas', async (req, res) => {
+app.put('/api/admin/senhas', requireAdmin, async (req, res) => {
   const { perfil, senha } = req.body;
   if (!['admin', 'caixa'].includes(perfil)) return res.status(400).json({ error: 'Perfil inválido' });
   if (!/^\d{4,8}$/.test(String(senha || ''))) return res.status(400).json({ error: 'Senha deve ter de 4 a 8 dígitos numéricos' });
@@ -350,7 +428,7 @@ app.get('/api/clientes/:id', async (req, res) => {
 });
 
 // Senha do cliente em texto (apenas admin, para repassar ao cliente).
-app.get('/api/admin/clientes/:id/pin', async (req, res) => {
+app.get('/api/admin/clientes/:id/pin', requireAdmin, async (req, res) => {
   const { data, error } = await supabase.from('clientes').select('pin_hash').eq('id', req.params.id).single();
   if (error) return res.status(404).json({ error: 'Cliente não encontrado' });
   res.json({ pin: recuperarPin(data.pin_hash) });
@@ -401,7 +479,7 @@ app.get('/api/clientes/:id/qr', async (req, res) => {
   res.json({ qr });
 });
 
-app.post('/api/clientes', async (req, res) => {
+app.post('/api/clientes', rateLimit('signup', 60000, 15), async (req, res) => {
   const { nome, pin, avatar } = req.body;
   if (!nome || !nome.trim()) return res.status(400).json({ error: 'Nome obrigatório' });
 
@@ -423,7 +501,7 @@ app.post('/api/clientes', async (req, res) => {
 });
 
 // admin reseta PIN de cliente
-app.post('/api/admin/clientes/:id/reset-pin', async (req, res) => {
+app.post('/api/admin/clientes/:id/reset-pin', requireAdmin, async (req, res) => {
   const novoPin = req.body.pin;
   if (!novoPin || !/^\d{4}$/.test(String(novoPin))) {
     return res.status(400).json({ error: 'PIN deve ter exatamente 4 dígitos numéricos' });
@@ -456,7 +534,7 @@ app.post('/api/clientes/login', async (req, res) => {
 
 // ── RECARGA ──────────────────────────────────────────────────────────────────
 
-app.post('/api/clientes/:id/recarregar', async (req, res) => {
+app.post('/api/clientes/:id/recarregar', requireStaff, async (req, res) => {
   const { valor, forma, operador } = req.body;
   const v = parseFloat(valor);
   if (!v || v <= 0) return res.status(400).json({ error: 'Valor inválido' });
@@ -557,7 +635,7 @@ async function seedCodigosBarracas() {
 }
 
 // Autenticação do gerente por código de barraca
-app.post('/api/auth/gerente', async (req, res) => {
+app.post('/api/auth/gerente', rateLimit('auth', 60000, 20), async (req, res) => {
   const { codigo } = req.body;
   if (!codigo) return res.status(400).json({ error: 'Código obrigatório' });
   if (!await codigoColunaExiste()) {
@@ -1633,7 +1711,7 @@ app.get('/api/admin/pedidos-monitor', async (req, res) => {
 });
 
 // ── ADMIN: LOG DE ATIVIDADES ─────────────────────────────────────────────────
-app.delete('/api/admin/log', async (req, res) => {
+app.delete('/api/admin/log', requireAdmin, async (req, res) => {
   const { error } = await supabase.from('activity_log').delete().not('id', 'is', null);
   if (error) return res.status(500).json({ error: error.message });
   res.json({ ok: true });
@@ -1650,7 +1728,7 @@ app.get('/api/admin/log', async (req, res) => {
   res.json(data || []);
 });
 
-app.post('/api/admin/log/:id/desfazer', async (req, res) => {
+app.post('/api/admin/log/:id/desfazer', requireAdmin, async (req, res) => {
   const { data: log } = await supabase.from('activity_log').select('*').eq('id', req.params.id).single();
   if (!log || log.desfeito) return res.status(400).json({ error: 'Ação não pode ser desfeita' });
 

@@ -135,6 +135,7 @@ function salvarSessao() {
     clienteAvatar: estado.clienteAvatar,
     barracaId: estado.barracaId,
     operadorNome: estado.operadorNome,
+    staffCodigo: estado.staffCodigo || null,
   }));
 }
 
@@ -150,6 +151,7 @@ function restaurarSessao() {
     estado.clienteAvatar = sessao.clienteAvatar || null;
     estado.barracaId = sessao.barracaId || null;
     estado.operadorNome = sessao.operadorNome || null;
+    estado.staffCodigo = sessao.staffCodigo || null;
 
     mostrarTela('screen-' + estado.perfil);
 
@@ -244,6 +246,7 @@ async function fazerLogin() {
     const auth = await api('/api/auth/perfil', 'POST', { perfil, codigo });
     if (!auth.ok) { toast(auth.error || 'Código incorreto!', 'error'); return; }
     estado.perfil = perfil;
+    estado.staffCodigo = codigo;   // autoriza ações protegidas (recarga, edição de saldo, etc.)
     estado.operadorNome = nome;
     mostrarTela('screen-' + perfil);
     salvarSessao();
@@ -685,6 +688,7 @@ async function confirmarAdmin() {
   if (!auth.ok) { toast(auth.error || 'Código incorreto!', 'error'); return; }
   fecharModalAdmin();
   estado.perfil = 'admin';
+  estado.staffCodigo = codigo;   // autoriza ações protegidas no servidor
   mostrarTela('screen-admin');
   salvarSessao();
   iniciarAdmin();
@@ -3071,6 +3075,8 @@ function clearPolls() {
 async function api(url, method = 'GET', body = null) {
   try {
     const opts = { method, headers: { 'Content-Type': 'application/json' } };
+    // Código de staff (admin/caixa) vai no header das ações protegidas no servidor.
+    if (estado.staffCodigo) opts.headers['x-staff-codigo'] = estado.staffCodigo;
     if (body) opts.body = JSON.stringify(body);
     console.log('[API]', method, url);
     const res = await fetch(API + url, opts);
