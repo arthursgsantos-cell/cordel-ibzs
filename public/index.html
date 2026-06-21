@@ -198,7 +198,7 @@
     <div class="form-group">
       <label>Seu avatar 🎭</label>
       <div class="avatar-builder">
-        <div id="avatar-preview" class="avatar-preview"></div>
+        <div id="avatar-preview" class="avatar-preview" onclick="abrirAvatarPopup(this, event)" title="Ver maior" style="cursor:zoom-in;"></div>
         <div class="avatar-builder-actions">
           <button type="button" class="btn btn-primary btn-sm" onclick="variarAvatar()">🎲 Variar</button>
           <button type="button" class="btn btn-outline btn-sm" onclick="toggleAvatarCustom()">🎨 Personalizar</button>
@@ -246,7 +246,7 @@
   <div class="modal-box" style="max-width:420px;">
     <h3>🎭 Seu avatar</h3>
     <div class="avatar-builder" style="margin-top:14px;">
-      <div id="avatar-preview-edit" class="avatar-preview"></div>
+      <div id="avatar-preview-edit" class="avatar-preview" onclick="abrirAvatarPopup(this, event)" title="Ver maior" style="cursor:zoom-in;"></div>
       <div class="avatar-builder-actions">
         <button type="button" class="btn btn-primary btn-sm" onclick="variarAvatar()">🎲 Variar</button>
         <button type="button" class="btn btn-outline btn-sm" onclick="toggleAvatarCustom()">🎨 Personalizar</button>
@@ -775,6 +775,7 @@
                 <th>Local / Recebedor</th>
                 <th>Itens / Forma</th>
                 <th style="text-align:right;">Valor</th>
+                <th style="text-align:center;">Ação</th>
               </tr>
             </thead>
             <tbody id="admin-tx-tabela"></tbody>

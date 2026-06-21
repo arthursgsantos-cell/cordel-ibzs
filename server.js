@@ -727,6 +727,42 @@ app.delete('/api/barracas/:id', async (req, res) => {
 
 // ── TRANSAÇÕES FILTRADAS + EXPORTAÇÃO ─────────────────────────────────────────
 
+// Excluir UMA transação/pedido específico (admin) — útil para apagar testes.
+// Estorna o saldo do cliente conforme o tipo, mantendo a integridade do saldo.
+app.delete('/api/admin/transacoes/:id', requireAdmin, async (req, res) => {
+  const origem = String(req.query.origem || '');
+  try {
+    if (origem === 'pedido') {
+      const { data: ped, error } = await supabase.from('pedidos').select('*').eq('id', req.params.id).single();
+      if (error || !ped) return res.status(404).json({ error: 'Pedido não encontrado' });
+      // Pedido pago em Alegrias debitou o saldo → estorna. Em espécie (dinheiro) não debitou.
+      if (ped.cliente_id && !pedidoEhEspecie(ped)) {
+        const { data: c } = await supabase.from('clientes').select('saldo').eq('id', ped.cliente_id).single();
+        if (c) await supabase.from('clientes').update({ saldo: parseFloat(c.saldo) + parseFloat(ped.valor_total || ped.valor || 0) }).eq('id', ped.cliente_id);
+      }
+      await supabase.from('pedidos').delete().eq('id', req.params.id);
+      await logAtividade('excluir', 'transacao', String(req.params.id), { tipo: 'pedido', valor: ped.valor_total || ped.valor }, req.staffPerfil, 'Admin', false);
+      return res.json({ ok: true });
+    }
+    const { data: tx, error } = await supabase.from('transacoes').select('*').eq('id', req.params.id).single();
+    if (error || !tx) return res.status(404).json({ error: 'Transação não encontrada' });
+    if (tx.cliente_id) {
+      const { data: c } = await supabase.from('clientes').select('saldo').eq('id', tx.cliente_id).single();
+      if (c) {
+        const v = parseFloat(tx.valor || 0);
+        let novo = parseFloat(c.saldo);
+        if (tx.tipo === 'recarga') novo -= v;                              // desfaz o crédito da recarga
+        else if (tx.tipo === 'venda' && tx.forma !== 'especie') novo += v; // devolve o débito (Alegrias)
+        novo = Math.max(0, novo);
+        await supabase.from('clientes').update({ saldo: novo }).eq('id', tx.cliente_id);
+      }
+    }
+    await supabase.from('transacoes').delete().eq('id', req.params.id);
+    await logAtividade('excluir', 'transacao', req.params.id, { tipo: tx.tipo, valor: tx.valor }, req.staffPerfil, 'Admin', false);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/admin/transacoes', async (req, res) => {
   const { cliente_id, barraca_id, tipo, data, cliente_nome } = req.query;
 

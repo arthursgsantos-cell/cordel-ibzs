@@ -628,6 +628,9 @@ function fecharCameraAvatar() {
 function abrirEditarAvatar() {
   if (!estado.clienteId) return;
   iniciarAvatarBuilder(estado.clienteAvatar || undefined, 'editar');
+  // nome do cliente no popup "ver maior" da foto/avatar
+  const pv = document.getElementById('avatar-preview-edit');
+  if (pv) pv.setAttribute('data-nome', estado.clienteNome || '');
   document.getElementById('modal-avatar-editor').classList.remove('hidden');
 }
 
@@ -2777,6 +2780,7 @@ function _renderTxPagina() {
       } catch {}
     }
 
+    const origemParam = t._origem === 'pedido' ? 'pedido' : 'tx';
     return `
       <tr>
         <td style="white-space:nowrap;">${formatarHora(t.timestamp)}</td>
@@ -2785,12 +2789,22 @@ function _renderTxPagina() {
         <td>${localHtml}</td>
         <td style="font-size:0.85rem;max-width:200px;">${detalhes}</td>
         <td style="text-align:right;font-weight:700;white-space:nowrap;">${t.valor} 🌟</td>
+        <td style="text-align:center;"><button class="btn btn-danger btn-sm" style="width:auto;padding:6px 10px;font-size:0.8rem;" title="Apagar esta transação (estorna o saldo)" onclick="excluirTransacao('${t.id}','${origemParam}')">🗑️</button></td>
       </tr>
     `;
-  }).join('') || '<tr><td colspan="6" style="text-align:center;color:#3A6EC8;">Nenhuma transação encontrada</td></tr>';
+  }).join('') || '<tr><td colspan="7" style="text-align:center;color:#3A6EC8;">Nenhuma transação encontrada</td></tr>';
   const barra = pagBarra('tx');
   document.getElementById('admin-tx-tabela').innerHTML =
-    linhas + (barra ? `<tr><td colspan="6" style="padding:0;">${barra}</td></tr>` : '');
+    linhas + (barra ? `<tr><td colspan="7" style="padding:0;">${barra}</td></tr>` : '');
+}
+
+// Apaga UMA transação específica (admin) — para remover testes. O servidor
+// estorna o saldo do cliente conforme o tipo (recarga desconta; venda devolve).
+async function excluirTransacao(id, origem) {
+  if (!confirm('Apagar esta transação?\n\nO saldo do cliente será ajustado:\n• Recarga → desconta o valor\n• Venda em Alegrias → devolve o valor\n\nEsta ação não pode ser desfeita.')) return;
+  const res = await api('/api/admin/transacoes/' + id + '?origem=' + origem, 'DELETE');
+  if (res && res.ok) { toast('Transação apagada!', 'success'); filtrarTransacoes(); }
+  else toast((res && res.error) || 'Erro ao apagar transação.', 'error');
 }
 
 function exportarCSV() {
