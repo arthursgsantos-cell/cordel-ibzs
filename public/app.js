@@ -2369,15 +2369,19 @@ function restaurarTabAdmin() {
 }
 
 async function carregarLogAdmin() {
-  const logs = await api('/api/admin/log?limit=50');
+  const logs = await api('/api/admin/log');
   const cont = document.getElementById('admin-log-lista');
   if (!Array.isArray(logs) || !logs.length) {
     cont.innerHTML = '<p style="color:#3A6EC8;text-align:center;padding:20px;">Nenhuma atividade ainda.</p>';
     return;
   }
-  const aviso = logs.length >= 50 ? `<p style="text-align:center;font-size:0.8rem;color:#9aaccc;padding:4px 0 8px;">📋 Mostrando os últimos ${logs.length} registros</p>` : '';
+  _pag.log = { ..._pag.log, scrollTo: 'admin-log-lista' };
+  pagSet('log', logs, _renderLogPagina);
+}
+function _renderLogPagina() {
+  const cont = document.getElementById('admin-log-lista');
   const acaoIcon = { criar: '➕', excluir: '🗑️', editar: '✏️', recarregar: '💰', vender: '🛒', confirmar: '✅' };
-  cont.innerHTML = logs.map(l => {
+  cont.innerHTML = pagSlice('log').map(l => {
     const icon = acaoIcon[l.acao] || '📌';
     const hora = l.criado_em ? new Date(l.criado_em).toLocaleString('pt-BR') : '';
     const perfilBadge = l.perfil ? `<span class="badge badge-${l.perfil === 'admin' ? 'red' : l.perfil === 'caixa' ? 'green' : 'yellow'}">${l.perfil}</span>` : '';
@@ -2395,8 +2399,7 @@ async function carregarLogAdmin() {
         ${undoBtn}
       </div>
     `;
-  }).join('');
-  cont.innerHTML = aviso + cont.innerHTML;
+  }).join('') + pagBarra('log');
 }
 
 async function confirmarApagarTodosClientes() {
@@ -2521,11 +2524,11 @@ async function buscarAdminClientes() {
 
 function renderTabelaClientes(clientes) {
   const sorted = [...clientes].sort((a, b) => b.saldo - a.saldo);
-  const LIM = 100;
-  const aviso = sorted.length > LIM
-    ? `<tr><td colspan="4" style="text-align:center;font-size:0.8rem;color:#9aaccc;padding:6px;">📋 Mostrando ${LIM} de ${sorted.length} clientes — use a busca acima para encontrar um cliente específico</td></tr>`
-    : '';
-  document.getElementById('admin-clientes-tabela').innerHTML = aviso + sorted.slice(0, LIM).map(c => `
+  _pag.clientes = { ..._pag.clientes, scrollTo: 'admin-clientes-tabela' };
+  pagSet('clientes', sorted, _renderClientesPagina);
+}
+function _renderClientesPagina() {
+  const linhas = pagSlice('clientes').map(c => `
     <tr>
       <td style="font-weight:600;"><span style="display:flex;align-items:center;gap:8px;">${avatarInline(c.avatar, 30, c.nome)}${c.nome}</span></td>
       <td><span class="badge badge-yellow">${c.codigo}</span></td>
@@ -2536,6 +2539,9 @@ function renderTabelaClientes(clientes) {
       </td>
     </tr>
   `).join('') || '<tr><td colspan="4" style="text-align:center;color:#3A6EC8;">Nenhum cliente</td></tr>';
+  const barra = pagBarra('clientes');
+  document.getElementById('admin-clientes-tabela').innerHTML =
+    linhas + (barra ? `<tr><td colspan="4" style="padding:0;">${barra}</td></tr>` : '');
 }
 
 async function confirmarExcluirCliente(id, nome) {
@@ -2747,8 +2753,12 @@ async function filtrarTransacoes() {
     <div class="kpi-card"><div class="kpi-valor">${r.resumo?.numRecargas ?? 0}</div><div class="kpi-label">Nº Recargas</div></div>
   `;
 
-  const avisoTx = tx.length >= 100 ? `<tr><td colspan="6" style="text-align:center;font-size:0.8rem;color:#9aaccc;padding:6px;">📋 Mostrando os últimos ${tx.length} registros — use os filtros para refinar</td></tr>` : '';
-  document.getElementById('admin-tx-tabela').innerHTML = avisoTx + tx.map(t => {
+  _pag.tx = { ..._pag.tx, scrollTo: 'admin-tx-tabela' };
+  pagSet('tx', tx, _renderTxPagina);
+}
+
+function _renderTxPagina() {
+  const linhas = pagSlice('tx').map(t => {
     const origem = _origemLabel[t._origem] || { texto: t.tipo, cor: '#888', badge: '' };
 
     let localHtml = '—';
@@ -2778,6 +2788,9 @@ async function filtrarTransacoes() {
       </tr>
     `;
   }).join('') || '<tr><td colspan="6" style="text-align:center;color:#3A6EC8;">Nenhuma transação encontrada</td></tr>';
+  const barra = pagBarra('tx');
+  document.getElementById('admin-tx-tabela').innerHTML =
+    linhas + (barra ? `<tr><td colspan="6" style="padding:0;">${barra}</td></tr>` : '');
 }
 
 function exportarCSV() {
@@ -3070,6 +3083,47 @@ function fecharModalProdutos() {
 function clearPolls() {
   clearInterval(estado.qrPollTimer);
   clearInterval(estado.clientePollTimer);
+}
+
+// ── Paginação genérica de listas (admin) ──────────────────────────
+// Mantém TODOS os dados em memória e exibe por páginas, com setinhas ◀ ▶.
+// Cada lista registra { dados, page, size, render } por uma chave.
+const _pag = {};
+function pagSet(key, dados, render, size = 50) {
+  const prev = _pag[key] || {};
+  const page = Number.isInteger(prev.page) ? prev.page : 0;
+  _pag[key] = { ...prev, dados, page, size, render }; // preserva scrollTo etc.
+  const max = Math.max(1, Math.ceil(dados.length / size));
+  if (_pag[key].page >= max) _pag[key].page = 0; // página sumiu após filtro
+  render();
+}
+function pagSlice(key) {
+  const p = _pag[key]; if (!p) return [];
+  return p.dados.slice(p.page * p.size, (p.page + 1) * p.size);
+}
+function pagIr(key, page) {
+  const p = _pag[key]; if (!p) return;
+  const max = Math.max(1, Math.ceil(p.dados.length / p.size));
+  p.page = Math.max(0, Math.min(page, max - 1));
+  p.render();
+  // rola o topo da lista pra facilitar a leitura da nova página
+  const alvo = document.getElementById(p.scrollTo || '');
+  if (alvo) alvo.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+// Barra de controles. Retorna '' quando cabe tudo numa página só.
+function pagBarra(key) {
+  const p = _pag[key]; if (!p) return '';
+  const total = p.dados.length;
+  if (total === 0) return '';
+  const max = Math.max(1, Math.ceil(total / p.size));
+  if (max <= 1) return `<div style="text-align:center;font-size:0.8rem;color:#9aaccc;padding:8px;">${total} ${total === 1 ? 'item' : 'itens'}</div>`;
+  const ini = p.page * p.size + 1, fim = Math.min(total, (p.page + 1) * p.size);
+  const btn = (lbl, page, off) => `<button class="btn btn-outline btn-sm" style="width:auto;padding:6px 14px;${off ? 'opacity:0.35;pointer-events:none;' : ''}" onclick="pagIr('${key}',${page})">${lbl}</button>`;
+  return `<div style="display:flex;align-items:center;justify-content:center;gap:12px;padding:12px 8px;flex-wrap:wrap;">
+    ${btn('◀', p.page - 1, p.page === 0)}
+    <span style="font-size:0.85rem;color:#1E3A6E;font-weight:600;">Página ${p.page + 1} de ${max}<span style="color:#9aaccc;font-weight:400;"> · ${ini}–${fim} de ${total}</span></span>
+    ${btn('▶', p.page + 1, p.page >= max - 1)}
+  </div>`;
 }
 
 async function api(url, method = 'GET', body = null) {

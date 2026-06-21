@@ -83,6 +83,21 @@ setInterval(() => {
   for (const [k, v] of _staffFails) if (now - v.start > 900000) _staffFails.delete(k);
 }, 300000).unref();
 
+// Busca TODOS os registros, contornando o teto de 1000 linhas por requisição do
+// Supabase/PostgREST. makeQuery(ini, fim) deve retornar uma query com .range().
+// Usado nas listas do admin que precisam exibir tudo (com paginação no front).
+async function fetchAllRows(makeQuery, hardCap = 50000) {
+  let all = [], from = 0;
+  while (true) {
+    const { data, error } = await makeQuery(from, from + 999);
+    if (error) throw error;
+    all = all.concat(data || []);
+    if (!data || data.length < 1000 || all.length >= hardCap) break;
+    from += 1000;
+  }
+  return all;
+}
+
 // ── Helper: decrementa estoque de uma lista de itens ─────────────────────────
 async function decrementarEstoque(itens, barracaId) {
   if (!Array.isArray(itens)) return;
@@ -713,46 +728,47 @@ app.delete('/api/barracas/:id', async (req, res) => {
 // ── TRANSAÇÕES FILTRADAS + EXPORTAÇÃO ─────────────────────────────────────────
 
 app.get('/api/admin/transacoes', async (req, res) => {
-  const { cliente_id, barraca_id, tipo, data, limit, cliente_nome } = req.query;
-  const lim = Math.min(parseInt(limit) || 100, 500);
+  const { cliente_id, barraca_id, tipo, data, cliente_nome } = req.query;
 
-  let txQuery = supabase
-    .from('transacoes')
-    .select(`*, clientes(nome,codigo,avatar), barracas(nome,emoji)`)
-    .order('timestamp', { ascending: false })
-    .limit(lim);
-  if (barraca_id) txQuery = txQuery.eq('barraca_id', barraca_id);
-  if (data) {
-    const ini = data + 'T00:00:00'; const fim = data + 'T23:59:59';
-    txQuery = txQuery.gte('timestamp', ini).lte('timestamp', fim);
-  }
-  // Filtro por tipo — se 'pedido' pedimos só pedidos; senão filtra transações
   const filtroPedido = tipo === 'pedido';
   const filtroRecarga = tipo === 'recarga';
   const filtroQR = tipo === 'qr';
   const filtroEspecie = tipo === 'especie';
-  if (filtroRecarga) txQuery = txQuery.eq('tipo', 'recarga');
-  else if (filtroQR || filtroEspecie) txQuery = txQuery.eq('tipo', 'venda');
-  else if (!filtroPedido && tipo) txQuery = txQuery.eq('tipo', tipo);
-  if (cliente_id) txQuery = txQuery.eq('cliente_id', cliente_id);
 
-  let pedQuery = supabase
-    .from('pedidos')
-    .select(`*, clientes(nome,codigo,avatar), barracas(nome,emoji)`)
-    .eq('status', 'confirmado')
-    .order('criado_em', { ascending: false })
-    .limit(lim);
-  if (barraca_id) pedQuery = pedQuery.eq('barraca_id', barraca_id);
-  if (data) {
-    const ini = data + 'T00:00:00'; const fim = data + 'T23:59:59';
-    pedQuery = pedQuery.gte('criado_em', ini).lte('criado_em', fim);
-  }
-  if (cliente_id) pedQuery = pedQuery.eq('cliente_id', cliente_id);
+  // Construtores de query (recebem faixa para paginar past-1000 e retornar tudo).
+  const makeTx = (ini, fim) => {
+    let q = supabase
+      .from('transacoes')
+      .select(`*, clientes(nome,codigo,avatar), barracas(nome,emoji)`)
+      .order('timestamp', { ascending: false }).range(ini, fim);
+    if (barraca_id) q = q.eq('barraca_id', barraca_id);
+    if (data) q = q.gte('timestamp', data + 'T00:00:00').lte('timestamp', data + 'T23:59:59');
+    if (filtroRecarga) q = q.eq('tipo', 'recarga');
+    else if (filtroQR || filtroEspecie) q = q.eq('tipo', 'venda');
+    else if (!filtroPedido && tipo) q = q.eq('tipo', tipo);
+    if (cliente_id) q = q.eq('cliente_id', cliente_id);
+    return q;
+  };
+  const makePed = (ini, fim) => {
+    let q = supabase
+      .from('pedidos')
+      .select(`*, clientes(nome,codigo,avatar), barracas(nome,emoji)`)
+      .eq('status', 'confirmado')
+      .order('criado_em', { ascending: false }).range(ini, fim);
+    if (barraca_id) q = q.eq('barraca_id', barraca_id);
+    if (data) q = q.gte('criado_em', data + 'T00:00:00').lte('criado_em', data + 'T23:59:59');
+    if (cliente_id) q = q.eq('cliente_id', cliente_id);
+    return q;
+  };
 
-  const [txRes, pedRes] = await Promise.all([
-    filtroPedido ? { data: [] } : txQuery,
-    filtroRecarga || filtroQR || filtroEspecie ? { data: [] } : pedQuery,
-  ]);
+  let txRes, pedRes;
+  try {
+    [txRes, pedRes] = await Promise.all([
+      filtroPedido ? Promise.resolve([]) : fetchAllRows(makeTx),
+      (filtroRecarga || filtroQR || filtroEspecie) ? Promise.resolve([]) : fetchAllRows(makePed),
+    ]);
+  } catch (e) { return res.status(500).json({ error: e.message }); }
+  txRes = { data: txRes }; pedRes = { data: pedRes };
 
   const txData = (txRes.data || []).map(t => {
     let forma = t.forma || null;
@@ -778,8 +794,7 @@ app.get('/api/admin/transacoes', async (req, res) => {
     }));
 
   let unified = [...txData, ...pedData]
-    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-    .slice(0, lim);
+    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
   if (filtroQR)      unified = unified.filter(t => t._origem === 'qr');
   if (filtroEspecie) unified = unified.filter(t => t._origem === 'especie');
@@ -1090,12 +1105,13 @@ app.get('/api/transacoes', async (req, res) => {
 
 app.get('/api/admin/relatorio', async (req, res) => {
   // Busca tudo em paralelo: clientes, transacoes (QR), pedidos confirmados, barracas
-  const [clientes, transacoes, pedidos, barracas] = await Promise.all([
-    supabase.from('clientes').select('*'),
+  const [clientesAll, transacoes, pedidos, barracas] = await Promise.all([
+    fetchAllRows((ini, fim) => supabase.from('clientes').select('*').order('nome').range(ini, fim)),
     supabase.from('transacoes').select('*, clientes(nome,avatar), barracas(nome,emoji)').order('timestamp', { ascending: false }).limit(500),
     supabase.from('pedidos').select('*, clientes(nome,avatar), barracas(nome,emoji)').eq('status', 'confirmado').order('criado_em', { ascending: false }).limit(500),
     supabase.from('barracas').select('*').eq('ativa', true),
   ]);
+  const clientes = { data: clientesAll };
 
   const tx     = transacoes.data || [];
   // Exclui pedidos em espécie: já contabilizados via transacao (forma=especie)
@@ -1719,13 +1735,21 @@ app.delete('/api/admin/log', requireAdmin, async (req, res) => {
 
 app.get('/api/admin/log', async (req, res) => {
   const { limit } = req.query;
-  const { data, error } = await supabase
-    .from('activity_log')
-    .select('*')
-    .order('criado_em', { ascending: false })
-    .limit(Math.min(parseInt(limit) || 50, 200));
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data || []);
+  // Se 'limit' vier explícito, respeita (ex.: dashboard). Sem limit, retorna TUDO
+  // (paginação fica no front) — antes cortava em 200 e escondia registros.
+  try {
+    if (limit) {
+      const { data, error } = await supabase
+        .from('activity_log').select('*')
+        .order('criado_em', { ascending: false }).limit(parseInt(limit));
+      if (error) throw error;
+      return res.json(data || []);
+    }
+    const all = await fetchAllRows((ini, fim) => supabase
+      .from('activity_log').select('*')
+      .order('criado_em', { ascending: false }).range(ini, fim));
+    res.json(all);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post('/api/admin/log/:id/desfazer', requireAdmin, async (req, res) => {
