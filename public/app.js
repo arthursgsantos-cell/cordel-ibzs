@@ -213,30 +213,22 @@ function mostrarTela(id) {
 }
 
 // ── Anti-robô: widget Turnstile no autocadastro ─────────────────────────────
+// Site Key é PÚBLICA (fica visível no HTML de qualquer jeito) — fixada aqui para
+// não depender de env e nunca ficar errada. A Secret Key (server) vai no Render.
+const TURNSTILE_SITEKEY = '0x4AAAAAADpFMWpGrFtTgFQi';
 let _turnstileToken = null;     // token atual; null = ainda não verificado
-let _turnstileSiteKey = undefined; // undefined = ainda não buscou; '' = não configurado
+let _turnstileSiteKey = TURNSTILE_SITEKEY; // truthy = captcha ativo no front
 let _turnstileWidgetId = null;
-
-async function carregarConfig() {
-  if (_turnstileSiteKey !== undefined) return _turnstileSiteKey;
-  try {
-    const cfg = await api('/api/config');
-    _turnstileSiteKey = cfg.turnstileSiteKey || '';
-  } catch { _turnstileSiteKey = ''; }
-  return _turnstileSiteKey;
-}
 
 async function renderTurnstile() {
   const cont = document.getElementById('turnstile-cadastro');
   if (!cont) return;
-  const sitekey = await carregarConfig();
-  if (!sitekey) { cont.style.display = 'none'; return; }   // sem chave → sem widget (modo transição)
   cont.style.display = 'flex';
   // espera o script da Cloudflare carregar
   if (!window.turnstile) { setTimeout(renderTurnstile, 300); return; }
   if (_turnstileWidgetId !== null) { window.turnstile.reset(_turnstileWidgetId); _turnstileToken = null; return; }
   _turnstileWidgetId = window.turnstile.render('#turnstile-cadastro', {
-    sitekey,
+    sitekey: TURNSTILE_SITEKEY,
     callback: (t) => { _turnstileToken = t; },
     'expired-callback': () => { _turnstileToken = null; },
     'error-callback': () => { _turnstileToken = null; },
