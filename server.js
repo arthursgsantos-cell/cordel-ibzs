@@ -310,6 +310,57 @@ app.delete('/api/clientes', requireAdmin, async (req, res) => {
   res.json({ ok: true, total: clientes?.length || 0 });
 });
 
+// Limpa contas criadas por bots. Heurística (somente saldo 0):
+//  • sufixo aleatório no nome (ex: "Ana Silva ip", "Tiago Souza OMcQir"), OU
+//  • cadastro na enxurrada noturna em rajada (vários por minuto de madrugada).
+// NUNCA apaga conta com saldo > 0. Aborta se for sobrar gente de menos (sanidade).
+app.post('/api/admin/limpar-bots', requireAdmin, async (req, res) => {
+  function sufRandomAlfa(nome) {
+    const t = String(nome || '').trim().split(/\s+/); if (t.length < 2) return false;
+    const l = t[t.length - 1]; if (!/^[A-Za-z]{2,8}$/.test(l)) return false;
+    const mn = /[a-z]/.test(l), mx = /[A-Z]/.test(l);
+    if (mn && mx && !/^[A-Z][a-z]+$/.test(l)) return true;  // mistura de caixa (ex: "oV","OMcQir")
+    if (l.length === 2) return true;                         // 2 letras soltas (ex: "OM","ip")
+    return false;
+  }
+  function sufDigito(nome) { const t = String(nome || '').trim().split(/\s+/); return t.length >= 2 && /^\d{1,2}$/.test(t[t.length - 1]); }
+
+  const { data: todos, error: e0 } = await supabase
+    .from('clientes').select('id,nome,saldo,criado_em').order('criado_em', { ascending: true });
+  if (e0) return res.status(500).json({ error: e0.message });
+
+  const ts = todos.map(c => new Date(c.criado_em).getTime());
+  const gap = i => { let g = Infinity; if (i > 0) g = Math.min(g, (ts[i] - ts[i - 1]) / 1000); if (i < ts.length - 1) g = Math.min(g, (ts[i + 1] - ts[i]) / 1000); return g; };
+  const noite = d => { const t = new Date(d).getTime(); return t >= Date.parse('2026-06-22T01:00:00Z') && t <= Date.parse('2026-06-22T03:00:00Z'); };
+
+  const bots = [];
+  todos.forEach((c, i) => {
+    if ((c.saldo || 0) > 0) return;                                              // saldo: nunca apaga
+    if (sufRandomAlfa(c.nome)) { bots.push(c); return; }
+    if (sufDigito(c.nome) && gap(i) <= 20 && noite(c.criado_em)) { bots.push(c); return; }
+    if (noite(c.criado_em) && gap(i) <= 20) { bots.push(c); return; }
+  });
+
+  const mantidos = todos.length - bots.length;
+  if (mantidos < 10) return res.status(409).json({ error: `Abortado por segurança: sobraria só ${mantidos} conta(s). Nada foi apagado.` });
+  if (bots.length === 0) return res.json({ ok: true, apagados: 0, mantidos, mensagem: 'Nenhum bot encontrado.' });
+
+  const ids = bots.map(b => b.id);
+  const chunk = (a, n) => { const r = []; for (let i = 0; i < a.length; i += n) r.push(a.slice(i, i + n)); return r; };
+  for (const c of chunk(ids, 80)) {
+    await supabase.from('transacoes').delete().in('cliente_id', c);
+    await supabase.from('pedidos').delete().in('cliente_id', c);
+  }
+  let apagados = 0;
+  for (const c of chunk(ids, 80)) {
+    const { data, error } = await supabase.from('clientes').delete().in('id', c).select('id');
+    if (error) return res.status(500).json({ error: error.message, apagadosParcial: apagados });
+    apagados += (data || []).length;
+  }
+  await logAtividade('excluir', 'cliente', 'lote-bots', { quantidade: apagados, motivo: 'limpeza anti-bot' }, 'admin', req.staffPerfil || 'Admin');
+  res.json({ ok: true, apagados, mantidos });
+});
+
 app.delete('/api/transacoes', requireAdmin, async (req, res) => {
   // A view unificada exibe transacoes + pedidos confirmados; apaga ambos
   const { data: tx, error: selErr } = await supabase.from('transacoes').select('id,tipo,valor');

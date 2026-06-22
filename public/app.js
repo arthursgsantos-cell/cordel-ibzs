@@ -2447,6 +2447,18 @@ function _renderLogPagina() {
   }).join('') + pagBarra('log');
 }
 
+async function confirmarLimparBots() {
+  if (!confirm('Procurar e apagar as contas criadas por bots?\n\nVai preservar quem tem saldo e os cadastros normais. Conta com saldo NUNCA é apagada.')) return;
+  toast('Analisando cadastros...', 'info');
+  const res = await api('/api/admin/limpar-bots', 'POST', {});
+  if (res.ok) {
+    toast(`🧹 ${res.apagados} bots apagados. ${res.mantidos} contas mantidas.`, 'success');
+    carregarAdmin();
+  } else {
+    toast(res.error || 'Erro ao limpar bots!', 'error');
+  }
+}
+
 async function confirmarApagarTodosClientes() {
   if (!confirm('Apagar TODOS os clientes? Esta ação não pode ser desfeita e também remove recargas!')) return;
   const res = await api('/api/clientes', 'DELETE');
