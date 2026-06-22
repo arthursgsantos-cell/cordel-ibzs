@@ -76,6 +76,38 @@ async function requireAdmin(req, res, next) {
   next();
 }
 
+// ── Anti-robô: Cloudflare Turnstile ("não sou um robô") ─────────────────────
+//  O spam de cadastro vem do autocadastro público (perfil 'cliente'). Aqui o
+//  cliente precisa passar no Turnstile. Staff (caixa/admin) e gerente autenticado
+//  passam direto. Se a chave secreta não estiver configurada (TURNSTILE_SECRET_KEY),
+//  entramos em "modo de transição": não bloqueia — assim o app nunca trava à toa.
+async function verificarTurnstile(token, ip) {
+  const secret = process.env.TURNSTILE_SECRET_KEY;
+  if (!secret) return true;            // sem chave → modo de transição (não bloqueia)
+  if (!token) return false;
+  try {
+    const r = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ secret, response: String(token), remoteip: ip || '' }),
+    });
+    const j = await r.json();
+    return !!j.success;
+  } catch (e) {
+    console.error('[turnstile] falha ao verificar:', e.message);
+    return false;                      // com chave configurada, em dúvida bloqueia
+  }
+}
+
+// Código de gerente = código de uma barraca ativa. Serve como bypass do Turnstile
+// nas telas internas (gerente cadastra cliente na venda em espécie).
+async function codigoGerenteValido(req) {
+  const codigo = String(req.headers['x-staff-codigo'] || (req.body && req.body.staffCodigo) || '').trim();
+  if (!codigo) return false;
+  const { data } = await supabase.from('barracas').select('id').eq('codigo', codigo).eq('ativa', true).maybeSingle();
+  return !!data;
+}
+
 // Limpeza periódica dos mapas em memória.
 setInterval(() => {
   const now = Date.now();
@@ -397,6 +429,11 @@ async function seedConfigSenhas() {
 }
 
 // Login de caixa/admin validado no servidor (antes era hardcoded no frontend)
+// Config pública pro frontend (a Site Key do Turnstile é pública por design).
+app.get('/api/config', (req, res) => {
+  res.json({ turnstileSiteKey: process.env.TURNSTILE_SITE_KEY || '' });
+});
+
 app.post('/api/auth/perfil', rateLimit('auth', 60000, 20), async (req, res) => {
   const { perfil, codigo } = req.body;
   if (!['admin', 'caixa'].includes(perfil)) return res.status(400).json({ error: 'Perfil inválido' });
@@ -497,6 +534,16 @@ app.get('/api/clientes/:id/qr', async (req, res) => {
 app.post('/api/clientes', rateLimit('signup', 60000, 15), async (req, res) => {
   const { nome, pin, avatar } = req.body;
   if (!nome || !nome.trim()) return res.status(400).json({ error: 'Nome obrigatório' });
+
+  // Anti-robô: autocadastro público (cliente) exige Turnstile. Staff (caixa/admin)
+  // e gerente autenticado passam direto, identificados pelo código no header.
+  const ehStaff = (await checkStaff(req)) || (await codigoGerenteValido(req));
+  if (!ehStaff) {
+    const humano = await verificarTurnstile(req.body.turnstileToken, ipDe(req));
+    if (!humano) {
+      return res.status(400).json({ error: 'Verificação anti-robô falhou. Recarregue a página e tente novamente.' });
+    }
+  }
 
   // Anti-bot: o spam de cadastro usa "Nome Sobrenome <número longo>" para
   // furar a checagem de nome duplicado. Nomes humanos não terminam em 3+

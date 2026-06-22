@@ -209,6 +209,38 @@ function mostrarTela(id) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   const el = document.getElementById(id);
   if (el) el.classList.add('active');
+  if (id === 'screen-criar-pin') renderTurnstile();
+}
+
+// ── Anti-robô: widget Turnstile no autocadastro ─────────────────────────────
+let _turnstileToken = null;     // token atual; null = ainda não verificado
+let _turnstileSiteKey = undefined; // undefined = ainda não buscou; '' = não configurado
+let _turnstileWidgetId = null;
+
+async function carregarConfig() {
+  if (_turnstileSiteKey !== undefined) return _turnstileSiteKey;
+  try {
+    const cfg = await api('/api/config');
+    _turnstileSiteKey = cfg.turnstileSiteKey || '';
+  } catch { _turnstileSiteKey = ''; }
+  return _turnstileSiteKey;
+}
+
+async function renderTurnstile() {
+  const cont = document.getElementById('turnstile-cadastro');
+  if (!cont) return;
+  const sitekey = await carregarConfig();
+  if (!sitekey) { cont.style.display = 'none'; return; }   // sem chave → sem widget (modo transição)
+  cont.style.display = 'flex';
+  // espera o script da Cloudflare carregar
+  if (!window.turnstile) { setTimeout(renderTurnstile, 300); return; }
+  if (_turnstileWidgetId !== null) { window.turnstile.reset(_turnstileWidgetId); _turnstileToken = null; return; }
+  _turnstileWidgetId = window.turnstile.render('#turnstile-cadastro', {
+    sitekey,
+    callback: (t) => { _turnstileToken = t; },
+    'expired-callback': () => { _turnstileToken = null; },
+    'error-callback': () => { _turnstileToken = null; },
+  });
 }
 
 async function fazerLogin() {
@@ -235,6 +267,7 @@ async function fazerLogin() {
       estado.perfil = 'gerente';
       estado.barracaId = res.barraca.id;
       estado.gerenteBarraca = res.barraca;
+      estado.staffCodigo = codigo;   // código de barraca: bypass do Turnstile no cadastro de cliente (não dá acesso admin/caixa)
       estado.operadorNome = nome;
       mostrarTela('screen-gerente');
       salvarSessao();
@@ -389,9 +422,18 @@ async function confirmarCriarPin() {
     estado.clienteNome = res.nome;
     toast('Conta criada! Anote seu código: ' + res.codigo, 'success');
   } else {
+    // Anti-robô: se o Turnstile está ativo, exige a verificação antes de enviar.
+    if (_turnstileSiteKey && !_turnstileToken) {
+      toast('Confirme que você não é um robô.', 'error');
+      return;
+    }
     // novo cliente (auto-cadastro: registra como 'cliente', não 'caixa')
-    const cliente = await api('/api/clientes', 'POST', { nome, pin, avatar, perfil: 'cliente', perfilNome: nome });
-    if (!cliente.id) { toast(cliente.error || 'Erro ao criar conta!', 'error'); return; }
+    const cliente = await api('/api/clientes', 'POST', { nome, pin, avatar, perfil: 'cliente', perfilNome: nome, turnstileToken: _turnstileToken });
+    if (!cliente.id) {
+      toast(cliente.error || 'Erro ao criar conta!', 'error');
+      if (_turnstileWidgetId !== null && window.turnstile) { window.turnstile.reset(_turnstileWidgetId); _turnstileToken = null; }
+      return;
+    }
     estado.clienteId   = cliente.id;
     estado.clienteNome = cliente.nome;
     toast('Conta criada! Código: ' + cliente.codigo + ' — anote!', 'success');

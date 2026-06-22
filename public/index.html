@@ -7,6 +7,8 @@
   <link rel="icon" type="image/jpeg" href="favicon.jpg" />
   <link rel="apple-touch-icon" href="favicon.jpg" />
   <link rel="stylesheet" href="style.css" />
+  <!-- Anti-robô: Cloudflare Turnstile (widget "não sou um robô") -->
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 </head>
 <body>
 
@@ -218,6 +220,8 @@
       <label>Confirme a senha</label>
       <input type="password" id="criar-pin-confirma" class="form-control" placeholder="●●●●" maxlength="4" pattern="[0-9]*" inputmode="numeric" style="text-align:center;font-size:1.8rem;letter-spacing:12px;" />
     </div>
+    <!-- Anti-robô: renderizado por JS quando há Site Key configurada -->
+    <div id="turnstile-cadastro" style="display:flex;justify-content:center;margin-top:14px;"></div>
     <button class="btn btn-primary" style="margin-top:8px;" onclick="confirmarCriarPin()">🔐 Criar Conta</button>
     <button class="btn btn-outline btn-sm" style="margin-top:10px;" onclick="voltarLogin()">Já tenho conta</button>
   </div>
