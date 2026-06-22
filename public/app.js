@@ -8,6 +8,8 @@ let todasBarracas = [];
 // ── Estado global ────────────────────────────────────────────────
 let estado = {
   perfil: null,       // 'cliente' | 'gerente' | 'caixa' | 'admin'
+  token: null,        // token de sessão assinado, devolvido pelo servidor no login
+  codigoCadastro: null, // código que libera criar conta (vem do QR da festa, ?cad=)
   clienteId: null,
   clienteNome: null,
   clienteAvatar: null,
@@ -47,7 +49,23 @@ const PRODUTOS = {
 // ═══════════════════════════════════════════════════════════════════
 //  INICIALIZAÇÃO
 // ═══════════════════════════════════════════════════════════════════
+// Captura o código de cadastro vindo do QR da festa (URL ?cad=CODIGO), guarda
+// e limpa da barra de endereço (para não ser compartilhado/print sem querer).
+function capturarCodigoCadastro() {
+  try {
+    const u = new URL(window.location.href);
+    const c = u.searchParams.get('cad');
+    if (c && c.trim()) {
+      localStorage.setItem('alegrias_cad', c.trim());
+      u.searchParams.delete('cad');
+      window.history.replaceState({}, '', u.pathname + (u.search || '') + (u.hash || ''));
+    }
+  } catch {}
+  estado.codigoCadastro = localStorage.getItem('alegrias_cad') || null;
+}
+
 window.addEventListener('DOMContentLoaded', () => {
+  capturarCodigoCadastro();
   iniciarSplash();
   renderLogoTodas();
   atualizarFormLogin();
@@ -136,6 +154,7 @@ function salvarSessao() {
     barracaId: estado.barracaId,
     operadorNome: estado.operadorNome,
     staffCodigo: estado.staffCodigo || null,
+    token: estado.token || null,
   }));
 }
 
@@ -152,6 +171,7 @@ function restaurarSessao() {
     estado.barracaId = sessao.barracaId || null;
     estado.operadorNome = sessao.operadorNome || null;
     estado.staffCodigo = sessao.staffCodigo || null;
+    estado.token = sessao.token || null;
 
     mostrarTela('screen-' + estado.perfil);
 
@@ -209,7 +229,17 @@ function mostrarTela(id) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   const el = document.getElementById(id);
   if (el) el.classList.add('active');
-  if (id === 'screen-criar-pin') renderTurnstile();
+  if (id === 'screen-criar-pin') atualizarAvisoCadastro();
+}
+
+// Mostra/oculta o aviso "escaneie o QR da festa" e habilita o botão Criar Conta
+// conforme a pessoa tenha ou não o código de cadastro (vindo do QR).
+function atualizarAvisoCadastro() {
+  const aviso = document.getElementById('cadastro-aviso');
+  const btn = document.getElementById('btn-criar-conta');
+  const temCodigo = !!estado.codigoCadastro;
+  if (aviso) aviso.style.display = temCodigo ? 'none' : 'block';
+  if (btn) { btn.disabled = !temCodigo; btn.style.opacity = temCodigo ? '1' : '0.45'; }
 }
 
 // ── Anti-robô: widget Turnstile no autocadastro ─────────────────────────────
@@ -257,6 +287,7 @@ async function fazerLogin() {
       const res = await api('/api/auth/gerente', 'POST', { codigo });
       if (!res.ok) { toast(res.error || 'Código inválido!', 'error'); return; }
       estado.perfil = 'gerente';
+      estado.token = res.token || null;   // token de sessão do gerente (barraca)
       estado.barracaId = res.barraca.id;
       estado.gerenteBarraca = res.barraca;
       estado.staffCodigo = codigo;   // código de barraca: bypass do Turnstile no cadastro de cliente (não dá acesso admin/caixa)
@@ -271,6 +302,7 @@ async function fazerLogin() {
     const auth = await api('/api/auth/perfil', 'POST', { perfil, codigo });
     if (!auth.ok) { toast(auth.error || 'Código incorreto!', 'error'); return; }
     estado.perfil = perfil;
+    estado.token = auth.token || null;   // token de sessão de staff (caixa/admin)
     estado.staffCodigo = codigo;   // autoriza ações protegidas (recarga, edição de saldo, etc.)
     estado.operadorNome = nome;
     mostrarTela('screen-' + perfil);
@@ -294,7 +326,9 @@ async function fazerLogin() {
     return;
   }
 
-  if (!cliente.pin_hash) {
+  // tem_pin vem da busca pública (sem vazar o hash); pin_hash só aparece p/ staff.
+  const temPin = !!(cliente.pin_hash || cliente.tem_pin);
+  if (!temPin) {
     // Cliente sem PIN → vai para criar PIN
     window._clienteExistenteId = cliente.id;
     window._clienteExistenteCodigo = cliente.codigo;
@@ -382,6 +416,7 @@ async function fazerLoginComPin() {
   if (res.error) { toast(res.error, 'error'); return; }
 
   estado.perfil = 'cliente';
+  estado.token = res.token || null;   // token de sessão do cliente
   estado.clienteId   = res.id;
   estado.clienteNome = res.nome;
   estado.clienteAvatar = res.avatar || null;
@@ -406,26 +441,31 @@ async function confirmarCriarPin() {
 
   const avatar = window._avatarCfg || AVATAR.random();
 
-  // já existia mas sem PIN
+  // já existia mas sem PIN → define a senha pela 1ª vez (endpoint dedicado, que
+  // só funciona em conta sem senha e devolve o token de sessão).
   if (window._clienteExistenteId) {
-    const res = await api('/api/clientes/' + window._clienteExistenteId, 'PUT', { pin, avatar });
+    const res = await api('/api/clientes/' + window._clienteExistenteId + '/definir-pin', 'POST', { pin, avatar });
     if (!res.id) { toast(res.error || 'Erro!', 'error'); return; }
+    estado.token       = res.token || null;
     estado.clienteId   = res.id;
     estado.clienteNome = res.nome;
     toast('Conta criada! Anote seu código: ' + res.codigo, 'success');
   } else {
-    // Anti-robô: se o Turnstile está ativo, exige a verificação antes de enviar.
-    if (_turnstileSiteKey && !_turnstileToken) {
-      toast('Confirme que você não é um robô.', 'error');
+    // GATE DE PRESENÇA: só cria conta quem chegou pelo QR da festa (tem o código).
+    // Staff/gerente não passam por aqui (cadastram pelas próprias telas).
+    if (!estado.codigoCadastro) {
+      toast('Para criar conta, escaneie o QR Code de cadastro disponível na festa.', 'error');
       return;
     }
     // novo cliente (auto-cadastro: registra como 'cliente', não 'caixa')
-    const cliente = await api('/api/clientes', 'POST', { nome, pin, avatar, perfil: 'cliente', perfilNome: nome, turnstileToken: _turnstileToken });
+    const cliente = await api('/api/clientes', 'POST', { nome, pin, avatar, perfil: 'cliente', perfilNome: nome, codigoCadastro: estado.codigoCadastro });
     if (!cliente.id) {
-      toast(cliente.error || 'Erro ao criar conta!', 'error');
-      if (_turnstileWidgetId !== null && window.turnstile) { window.turnstile.reset(_turnstileWidgetId); _turnstileToken = null; }
+      // Código vencido/trocado: limpa o guardado para forçar novo escaneamento.
+      if (cliente.error === 'cadastro_bloqueado') { estado.codigoCadastro = null; localStorage.removeItem('alegrias_cad'); }
+      toast(cliente.message || cliente.error || 'Erro ao criar conta!', 'error');
       return;
     }
+    estado.token       = cliente.token || null;
     estado.clienteId   = cliente.id;
     estado.clienteNome = cliente.nome;
     toast('Conta criada! Código: ' + cliente.codigo + ' — anote!', 'success');
@@ -725,6 +765,7 @@ async function confirmarAdmin() {
   if (!auth.ok) { toast(auth.error || 'Código incorreto!', 'error'); return; }
   fecharModalAdmin();
   estado.perfil = 'admin';
+  estado.token = auth.token || null;   // token de sessão de admin
   estado.staffCodigo = codigo;   // autoriza ações protegidas no servidor
   mostrarTela('screen-admin');
   salvarSessao();
@@ -2292,7 +2333,7 @@ function abrirTabAdmin(ev, tab) {
   localStorage.setItem('tab_admin', tab);
   if (tab === 'log') carregarLogAdmin();
   if (tab === 'transacoes') filtrarTransacoes();
-  if (tab === 'senhas') carregarSenhas();
+  if (tab === 'senhas') { carregarSenhas(); carregarCadastroQR(); }
   if (tab === 'monitor') iniciarMonitorPedidos();
   else pararMonitorPedidos();
 }
@@ -2380,6 +2421,50 @@ function toggleVerSenha(inputId, btn) {
   const el = document.getElementById(inputId);
   el.type = el.type === 'password' ? 'text' : 'password';
   btn.textContent = el.type === 'password' ? '👁️' : '🙈';
+}
+
+// ── QR de cadastro (gate de presença) ────────────────────────────────────────
+let _cadastroQR = null; // {codigo, url, qr}
+async function carregarCadastroQR() {
+  const r = await api('/api/admin/cadastro');
+  if (!r || !r.qr) return;
+  _cadastroQR = r;
+  const img = document.getElementById('cadastro-qr-img');
+  const cod = document.getElementById('cadastro-qr-codigo');
+  if (img) img.innerHTML = `<img src="${r.qr}" alt="QR de cadastro" style="width:220px;height:220px;border-radius:12px;border:4px solid #1E3A6E;" />`;
+  if (cod) cod.textContent = r.codigo;
+}
+
+async function regenerarCadastroCodigo() {
+  if (!confirm('Gerar um NOVO código? O QR atual para de funcionar imediatamente — só o novo QR (impresso) servirá para cadastrar.')) return;
+  const r = await api('/api/admin/cadastro/regenerar', 'POST');
+  if (!r || !r.ok) { toast(r.error || 'Erro ao gerar novo código.', 'error'); return; }
+  _cadastroQR = r;
+  const img = document.getElementById('cadastro-qr-img');
+  const cod = document.getElementById('cadastro-qr-codigo');
+  if (img) img.innerHTML = `<img src="${r.qr}" alt="QR de cadastro" style="width:220px;height:220px;border-radius:12px;border:4px solid #1E3A6E;" />`;
+  if (cod) cod.textContent = r.codigo;
+  toast('Novo código gerado! Imprima o novo QR.', 'success');
+}
+
+function imprimirCadastroQR() {
+  if (!_cadastroQR || !_cadastroQR.qr) { toast('QR ainda não carregou.', 'error'); return; }
+  const w = window.open('', '_blank');
+  if (!w) { toast('Permita pop-ups para imprimir.', 'error'); return; }
+  w.document.write(`<!doctype html><html><head><title>QR de Cadastro — Cordel 2026</title>
+    <style>body{font-family:system-ui,Arial,sans-serif;text-align:center;padding:40px;color:#1E3A6E}
+    h1{font-size:28px;margin:0 0 4px}h2{font-size:18px;color:#3A6EC8;font-weight:600;margin:0 0 24px}
+    img{width:360px;height:360px;border:6px solid #1E3A6E;border-radius:18px}
+    p{font-size:20px;margin-top:24px}.cod{font-size:15px;color:#888;margin-top:8px}</style></head>
+    <body>
+      <h1>📷 Crie sua conta aqui!</h1>
+      <h2>Aponte a câmera do celular para o QR Code</h2>
+      <img src="${_cadastroQR.qr}" />
+      <p><strong>Festa Cordel 2026</strong> · Igreja Batista Zona Sul</p>
+      <div class="cod">código: ${_cadastroQR.codigo}</div>
+      <script>window.onload=function(){setTimeout(function(){window.print()},300)}<\/script>
+    </body></html>`);
+  w.document.close();
 }
 
 async function salvarSenha(perfil) {
@@ -3189,13 +3274,23 @@ function pagBarra(key) {
 async function api(url, method = 'GET', body = null) {
   try {
     const opts = { method, headers: { 'Content-Type': 'application/json' } };
-    // Código de staff (admin/caixa) vai no header das ações protegidas no servidor.
+    // Token de sessão assinado (caminho normal de autorização após o login).
+    if (estado.token) opts.headers['Authorization'] = 'Bearer ' + estado.token;
+    // Código de staff/barraca: ainda enviado para compatibilidade de algumas ações.
     if (estado.staffCodigo) opts.headers['x-staff-codigo'] = estado.staffCodigo;
     if (body) opts.body = JSON.stringify(body);
     console.log('[API]', method, url);
     const res = await fetch(API + url, opts);
     const data = await res.json();
     console.log('[API] resposta:', url, res.status, JSON.stringify(data).substring(0, 150));
+    // Sessão expirada/inválida: se já estávamos logados e o servidor rejeita a
+    // autorização, força relogin (token venceu ou o servidor reiniciou).
+    if (res.status === 401 && estado.token && estado.perfil) {
+      estado.token = null;
+      toast('Sua sessão expirou. Faça login novamente.', 'error');
+      if (typeof logout === 'function') logout();
+      return {};
+    }
     return data;
   } catch (e) {
     console.error('[API] erro', url, e);

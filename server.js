@@ -7,7 +7,16 @@ const crypto = require('crypto');
 const supabase = require('./database');
 
 const app = express();
-app.use(cors());
+// Render coloca exatamente 1 proxy na frente do app. Com isso, req.ip passa a ser
+// o IP REAL do cliente (o último salto antes do proxy) e NÃO o que o atacante
+// injeta no cabeçalho X-Forwarded-For. Sem isto, todo rate-limit/anti-brute-force
+// era contornável só mandando um X-Forwarded-For falso a cada requisição.
+app.set('trust proxy', 1);
+// O front é servido pelo PRÓPRIO servidor (express.static), então requisições
+// são de mesma origem e não precisam de CORS. Por padrão NÃO liberamos outras
+// origens (mais seguro). Para permitir um domínio externo específico, defina
+// APP_ORIGIN no ambiente (ex.: https://meuapp.com).
+app.use(cors(process.env.APP_ORIGIN ? { origin: process.env.APP_ORIGIN } : { origin: false }));
 app.use(express.json({ charset: 'utf-8' }));
 app.use(express.urlencoded({ extended: true, charset: 'utf-8' }));
 app.use(express.static('public'));
@@ -19,8 +28,9 @@ app.use(express.static('public'));
 //  admin/caixa (header x-staff-codigo) nas ações sensíveis e limitamos a taxa.
 // ════════════════════════════════════════════════════════════════════════════
 function ipDe(req) {
-  return (req.headers['x-forwarded-for'] || '').split(',')[0].trim()
-    || req.socket?.remoteAddress || 'desconhecido';
+  // req.ip respeita 'trust proxy' acima: é o IP real do cliente, não o que o
+  // atacante forja em X-Forwarded-For. NÃO voltar a ler o cabeçalho diretamente.
+  return req.ip || req.socket?.remoteAddress || 'desconhecido';
 }
 
 // Limitador de taxa por IP+rota (janela deslizante simples).
@@ -55,6 +65,14 @@ function registrarFalhaStaff(req) {
 
 // Retorna 'admin' | 'caixa' | null conforme o código enviado no header.
 async function checkStaff(req) {
+  // 1) Token de sessão assinado (caminho normal após o login).
+  const h = req.headers['authorization'] || '';
+  const raw = h.startsWith('Bearer ') ? h.slice(7).trim() : (req.headers['x-auth-token'] ? String(req.headers['x-auth-token']) : null);
+  if (raw) {
+    const tk = verificarToken(raw);
+    if (tk && tk.t === 'staff' && (tk.role === 'admin' || tk.role === 'caixa')) return tk.role;
+  }
+  // 2) Código cru no header (compatibilidade durante a transição p/ tokens).
   const codigo = String(req.headers['x-staff-codigo'] || (req.body && req.body.staffCodigo) || '').trim();
   if (!codigo) return null;
   if (codigo === await getSenha('admin')) return 'admin';
@@ -74,6 +92,62 @@ async function requireAdmin(req, res, next) {
   if (perfil !== 'admin') { if (!perfil) registrarFalhaStaff(req); return res.status(perfil ? 403 : 401).json({ error: perfil ? 'Requer perfil admin' : 'Não autorizado' }); }
   req.staffPerfil = perfil;
   next();
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  SESSÃO ASSINADA (token HMAC, sem dependências e sem estado no servidor)
+//  Em vez de repetir a senha crua em todo request, o login devolve um token
+//  assinado com validade. O cliente envia no header Authorization: Bearer <tok>.
+//  Defina SESSION_SECRET no ambiente (Render) — senão um segredo aleatório é
+//  gerado a cada boot e todos precisam relogar quando o servidor reinicia.
+// ════════════════════════════════════════════════════════════════════════════
+const SESSION_SECRET = process.env.SESSION_SECRET
+  || (console.warn('⚠️  SESSION_SECRET não definido — usando segredo efêmero (todos relogam a cada restart). Defina no Render.'),
+      crypto.randomBytes(32).toString('hex'));
+const TOKEN_TTL_MS = 16 * 60 * 60 * 1000; // 16h — cobre um dia inteiro de evento
+
+function assinarToken(payload) {
+  const body = Buffer.from(JSON.stringify({ ...payload, exp: Date.now() + TOKEN_TTL_MS })).toString('base64url');
+  const sig = crypto.createHmac('sha256', SESSION_SECRET).update(body).digest('base64url');
+  return body + '.' + sig;
+}
+function verificarToken(token) {
+  if (!token || typeof token !== 'string' || token.indexOf('.') < 0) return null;
+  const [body, sig] = token.split('.');
+  if (!body || !sig) return null;
+  const esperado = crypto.createHmac('sha256', SESSION_SECRET).update(body).digest('base64url');
+  const a = Buffer.from(sig), b = Buffer.from(esperado);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+  let p; try { p = JSON.parse(Buffer.from(body, 'base64url').toString('utf8')); } catch { return null; }
+  if (!p.exp || Date.now() > p.exp) return null;
+  return p;
+}
+function tokenDe(req) {
+  const h = req.headers['authorization'] || '';
+  if (h.startsWith('Bearer ')) return verificarToken(h.slice(7).trim());
+  if (req.headers['x-auth-token']) return verificarToken(String(req.headers['x-auth-token']));
+  return null;
+}
+
+// Exige que o request seja do PRÓPRIO cliente cujo id está na rota/no corpo.
+// Aceita o token de cliente OU um token/código de staff (admin/caixa atuando em
+// nome do cliente, ex.: caixa recarregando). Bloqueia "agir como outro cliente".
+async function requireDono(req, res, next) {
+  const alvo = String(req.params.id || req.body.cliente_id || '');
+  const tk = tokenDe(req);
+  if (tk && tk.t === 'cliente' && String(tk.cid) === alvo) { req.clienteId = tk.cid; return next(); }
+  if (await checkStaff(req)) { req.staffAgindo = true; return next(); }
+  if (tk && tk.t === 'gerente') { req.gerenteBarraca = tk.barraca_id; return next(); }
+  return res.status(401).json({ error: 'Não autorizado' });
+}
+
+// Exige token de gerente (barraca) OU staff. Usado nas ações de balcão/barraca.
+async function requireGerente(req, res, next) {
+  const tk = tokenDe(req);
+  if (tk && (tk.t === 'gerente' || tk.t === 'staff')) { req.authTok = tk; return next(); }
+  if (await checkStaff(req)) { req.staffAgindo = true; return next(); }
+  if (await codigoGerenteValido(req)) return next();
+  return res.status(401).json({ error: 'Não autorizado' });
 }
 
 // ── Anti-robô: Cloudflare Turnstile ("não sou um robô") ─────────────────────
@@ -113,6 +187,7 @@ setInterval(() => {
   const now = Date.now();
   for (const [k, v] of _hits) if (now - v.start > 900000) _hits.delete(k);
   for (const [k, v] of _staffFails) if (now - v.start > 900000) _staffFails.delete(k);
+  for (const [k, v] of _loginFails) if (now - v.start > 900000) _loginFails.delete(k);
 }, 300000).unref();
 
 // Busca TODOS os registros, contornando o teto de 1000 linhas por requisição do
@@ -153,6 +228,38 @@ async function decrementarEstoque(itens, barracaId) {
         .eq('id', prod.id);
     }
   }
+}
+
+// Calcula o valor de um pedido usando o preço OFICIAL do banco — nunca o preço
+// que o navegador enviou. Sem isto, o cliente podia mandar preco:0 e comer de
+// graça. Para cada item resolve o produto por id (ou nome+barraca) e usa o preço
+// do DB; só cai no preço enviado quando o produto não existe no banco (modo
+// fallback com cardápio em memória), cenário em que não há preço oficial.
+async function valorOficial(itens, barracaId) {
+  if (!Array.isArray(itens)) return { valor: 0, suspeito: true };
+  let total = 0, suspeito = false;
+  for (const item of itens) {
+    const qty = Math.max(1, parseInt(item.qty) || 1);
+    let prod = null;
+    if (item.id && !String(item.id).startsWith('mem_')) {
+      const { data } = await supabase.from('produtos').select('id,preco').eq('id', item.id).maybeSingle();
+      prod = data;
+    }
+    if (!prod && item.nome && barracaId) {
+      const { data } = await supabase.from('produtos').select('id,preco')
+        .eq('barraca_id', barracaId).eq('nome', item.nome).maybeSingle();
+      prod = data;
+    }
+    if (prod) {
+      total += parseFloat(prod.preco) * qty;
+    } else {
+      // Sem produto no banco (cardápio em memória): usa o preço enviado, mas
+      // nunca negativo. Marca como suspeito para auditoria.
+      total += Math.max(0, parseFloat(item.preco) || 0) * qty;
+      suspeito = true;
+    }
+  }
+  return { valor: Math.round(total * 100) / 100, suspeito };
 }
 
 // ── CARDÁPIO OFICIAL DO EVENTO ────────────────────────────────────────────────
@@ -250,32 +357,58 @@ app.get('/api/avatares', async (req, res) => {
 
 app.get('/api/clientes', async (req, res) => {
   const { nome, codigo } = req.query;
+  // Só staff/gerente vê a lista completa, dados completos ou busca por código.
+  // A tela de login do cliente precisa buscar por NOME antes de ter token — essa
+  // busca é pública, MAS devolve só campos mínimos (id, nome, avatar), nunca
+  // saldo/código/senha. Antes, qualquer um listava todo mundo com saldo.
+  const ehStaff = !!(await checkStaff(req)) || (await codigoGerenteValido(req));
+
   if (codigo) {
+    if (!ehStaff) return res.status(401).json({ error: 'Não autorizado' });
     const { data, error } = await supabase.from('clientes').select('*').eq('codigo', codigo);
     if (error) return res.status(500).json({ error: error.message });
     return res.json(data);
   }
+
+  if (!nome) {
+    if (!ehStaff) return res.status(401).json({ error: 'Não autorizado' });
+    const lim = parseInt(req.query.limit) || 500;
+    const { data, error } = await supabase.from('clientes').select('*').order('nome').limit(lim);
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json(data);
+  }
+
+  // Busca por nome. Não-staff (tela de login do cliente) recebe só campos
+  // mínimos — NUNCA o pin_hash. Devolvemos 'tem_pin' (booleano) e 'criado_em'
+  // porque o fluxo de login precisa saber se a conta já tem senha e mostrar a
+  // data na confirmação de identidade.
+  const colunas = ehStaff ? '*' : 'id,nome,avatar,criado_em,pin_hash';
   const lim = parseInt(req.query.limit) || 500;
-  const { data, error } = await supabase.from('clientes').select('*').order('nome').limit(lim);
+  const { data, error } = await supabase.from('clientes').select(colunas).order('nome').limit(lim);
   if (error) return res.status(500).json({ error: error.message });
-  if (!nome) return res.json(data);
-  const scored = data
+  let scored = data
     .map(c => ({ ...c, _score: scoreFuzzy(c.nome, nome) }))
     .filter(c => c._score >= 50)
     .sort((a, b) => b._score - a._score);
+  if (!ehStaff) {
+    scored = scored.map(c => ({ id: c.id, nome: c.nome, avatar: c.avatar, criado_em: c.criado_em, tem_pin: !!c.pin_hash, _score: c._score }));
+  }
   res.json(scored);
 });
 
-app.put('/api/clientes/:id', async (req, res) => {
+// requireDono: só o PRÓPRIO cliente (token) ou staff edita este cadastro.
+// Antes, QUALQUER UM trocava o nome/PIN de QUALQUER pessoa — era o vetor de
+// "brincar com a cara" (renomear contas alheias) e de sequestro de conta (trocar PIN).
+app.put('/api/clientes/:id', requireDono, async (req, res) => {
   const { nome, saldo, pin, avatar } = req.body;
   const updates = {};
   if (nome !== undefined) updates.nome = nome.trim();
   // Alterar SALDO é exclusivo de staff (admin/caixa) — este foi o vetor da fraude.
-  // O cliente continua podendo atualizar o próprio nome/PIN/avatar sem código.
+  // O cliente continua podendo atualizar o próprio nome/PIN/avatar.
   if (saldo !== undefined && !isNaN(saldo)) {
-    if (staffBloqueado(req)) return res.status(429).json({ error: 'Bloqueado temporariamente por excesso de tentativas.' });
-    const perfil = await checkStaff(req);
-    if (!perfil) { registrarFalhaStaff(req); return res.status(401).json({ error: 'Não autorizado a alterar saldo' }); }
+    if (!req.staffAgindo && !(await checkStaff(req))) {
+      registrarFalhaStaff(req); return res.status(401).json({ error: 'Não autorizado a alterar saldo' });
+    }
     updates.saldo = parseFloat(saldo);
   }
   if (pin !== undefined && pin !== '' && /^\d{4}$/.test(String(pin))) {
@@ -477,6 +610,36 @@ async function seedConfigSenhas() {
     const { data } = await supabase.from('config').select('chave').eq('chave', 'senha_' + perfil).maybeSingle();
     if (!data) await supabase.from('config').insert({ chave: 'senha_' + perfil, valor: SENHAS_PADRAO[perfil] });
   }
+  // Código de cadastro: semeia um valor ALEATÓRIO na 1ª vez (nunca o padrão
+  // previsível em produção). O admin vê/imprime o QR e pode trocar quando quiser.
+  const { data: cc } = await supabase.from('config').select('chave').eq('chave', 'codigo_cadastro').maybeSingle();
+  if (!cc) await supabase.from('config').insert({ chave: 'codigo_cadastro', valor: 'C' + Math.random().toString(36).substring(2, 7).toUpperCase() });
+}
+
+// ── CÓDIGO DE CADASTRO (gate de presença física) ─────────────────────────────
+// Para criar conta de cliente é preciso este código, que só circula no QR Code
+// exibido NA FESTA. Bot remoto não tem como obtê-lo. Fica na tabela config e o
+// admin pode trocá-lo (gerar novo QR) a qualquer momento, ex.: se vazar.
+const CODIGO_CADASTRO_PADRAO = 'CORDEL2026';
+async function getCodigoCadastro() {
+  if (await configTabelaExiste()) {
+    const { data } = await supabase.from('config').select('valor').eq('chave', 'codigo_cadastro').maybeSingle();
+    if (data && data.valor) return data.valor;
+  }
+  return CODIGO_CADASTRO_PADRAO;
+}
+async function setCodigoCadastro(valor) {
+  if (!await configTabelaExiste()) return false;
+  const { error } = await supabase.from('config').upsert({ chave: 'codigo_cadastro', valor: String(valor), atualizado_em: new Date().toISOString() });
+  return !error;
+}
+// Monta a URL e o QR que levam ao app já habilitado a cadastrar (?cad=CODIGO).
+async function montarCadastroQR(req) {
+  const codigo = await getCodigoCadastro();
+  const base = process.env.APP_ORIGIN || `${req.protocol}://${req.get('host')}`;
+  const url = `${base}/?cad=${encodeURIComponent(codigo)}`;
+  const qr = await QRCode.toDataURL(url, { width: 600, margin: 2, color: { dark: '#1E3A6E', light: '#FFFFFF' } });
+  return { codigo, url, qr };
 }
 
 // Login de caixa/admin validado no servidor (antes era hardcoded no frontend)
@@ -491,7 +654,7 @@ app.post('/api/auth/perfil', rateLimit('auth', 60000, 20), async (req, res) => {
   if (!codigo) return res.status(400).json({ error: 'Código obrigatório' });
   const senha = await getSenha(perfil);
   if (String(codigo).trim() !== senha) return res.status(401).json({ error: 'Código incorreto!' });
-  res.json({ ok: true, perfil });
+  res.json({ ok: true, perfil, token: assinarToken({ t: 'staff', role: perfil }) });
 });
 
 app.get('/api/admin/senhas', requireAdmin, async (req, res) => {
@@ -500,6 +663,23 @@ app.get('/api/admin/senhas', requireAdmin, async (req, res) => {
     caixa: await getSenha('caixa'),
     persistido: await configTabelaExiste(),
   });
+});
+
+// QR de cadastro (gate de presença): admin exibe/imprime para colar na festa.
+app.get('/api/admin/cadastro', requireAdmin, async (req, res) => {
+  const info = await montarCadastroQR(req);
+  res.json({ ...info, persistido: await configTabelaExiste() });
+});
+
+// Gera um novo código (e novo QR) — invalida o anterior. Use se o código vazar.
+app.post('/api/admin/cadastro/regenerar', requireAdmin, async (req, res) => {
+  const novo = 'C' + Math.random().toString(36).substring(2, 7).toUpperCase();
+  if (!await setCodigoCadastro(novo)) {
+    return res.status(503).json({ error: 'Tabela "config" não existe. Rode supabase_migration_v2.sql.' });
+  }
+  await logAtividade('editar', 'config', null, { item: 'codigo_cadastro' }, 'admin', 'Admin', false);
+  const info = await montarCadastroQR(req);
+  res.json({ ok: true, ...info });
 });
 
 app.put('/api/admin/senhas', requireAdmin, async (req, res) => {
@@ -524,7 +704,7 @@ app.put('/api/admin/senhas', requireAdmin, async (req, res) => {
   res.json({ ok: true });
 });
 
-app.get('/api/clientes/:id', async (req, res) => {
+app.get('/api/clientes/:id', requireDono, async (req, res) => {
   const { data, error } = await supabase.from('clientes').select('*').eq('id', req.params.id).single();
   if (error) return res.status(404).json({ error: 'Cliente não encontrado' });
   res.json(data);
@@ -539,7 +719,7 @@ app.get('/api/admin/clientes/:id/pin', requireAdmin, async (req, res) => {
 
 // Extrato unificado do cliente: recargas + compras (QR, espécie e cardápio),
 // ordenado por data. Evita duplicidade da espécie (transacao + pedido).
-app.get('/api/clientes/:id/extrato', async (req, res) => {
+app.get('/api/clientes/:id/extrato', requireDono, async (req, res) => {
   const id = req.params.id;
   const [txRes, pedRes] = await Promise.all([
     supabase.from('transacoes').select('*, barracas(nome,emoji)').eq('cliente_id', id).order('timestamp', { ascending: false }).limit(200),
@@ -574,7 +754,7 @@ app.get('/api/clientes/:id/extrato', async (req, res) => {
   res.json(extrato);
 });
 
-app.get('/api/clientes/:id/qr', async (req, res) => {
+app.get('/api/clientes/:id/qr', requireDono, async (req, res) => {
   const { data: cliente, error } = await supabase.from('clientes').select('id,nome,codigo').eq('id', req.params.id).single();
   if (error) return res.status(404).json({ error: 'Cliente não encontrado' });
   const payload = JSON.stringify({ tipo: 'cliente', id: cliente.id, nome: cliente.nome, codigo: cliente.codigo });
@@ -586,13 +766,16 @@ app.post('/api/clientes', rateLimit('signup', 60000, 15), async (req, res) => {
   const { nome, pin, avatar } = req.body;
   if (!nome || !nome.trim()) return res.status(400).json({ error: 'Nome obrigatório' });
 
-  // Anti-robô: autocadastro público (cliente) exige Turnstile. Staff (caixa/admin)
-  // e gerente autenticado passam direto, identificados pelo código no header.
+  // GATE DE PRESENÇA: autocadastro público exige o CÓDIGO DE CADASTRO, que só
+  // circula no QR Code exibido na festa. Staff (caixa/admin) e gerente autenticado
+  // passam direto (cadastram no balcão), identificados pelo código no header.
+  // Isto substitui o Turnstile: presença física é um gate mais forte que captcha.
   const ehStaff = (await checkStaff(req)) || (await codigoGerenteValido(req));
   if (!ehStaff) {
-    const humano = await verificarTurnstile(req.body.turnstileToken, ipDe(req));
-    if (!humano) {
-      return res.status(400).json({ error: 'Verificação anti-robô falhou. Recarregue a página e tente novamente.' });
+    const cod = String(req.body.codigoCadastro || '').trim().toUpperCase();
+    const esperado = String(await getCodigoCadastro()).toUpperCase();
+    if (!cod || cod !== esperado) {
+      return res.status(403).json({ error: 'cadastro_bloqueado', message: 'Para criar conta, escaneie o QR Code de cadastro disponível na festa.' });
     }
   }
 
@@ -617,7 +800,10 @@ app.post('/api/clientes', rateLimit('signup', 60000, 15), async (req, res) => {
   const { data, error } = await supabase.from('clientes').insert(insertData).select().single();
   if (error) return res.status(500).json({ error: error.message });
   await logAtividade('criar', 'cliente', data.id, { nome: data.nome, saldo: 0 }, req.body.perfil || 'caixa', req.body.perfilNome || '');
-  res.status(201).json(data);
+  // Token só faz sentido no autocadastro do próprio cliente (perfil 'cliente').
+  // Quando staff/gerente cria a conta de outra pessoa, NÃO devolvemos token.
+  const ehAutocadastro = req.body.perfil === 'cliente' && data.pin_hash;
+  res.status(201).json(ehAutocadastro ? { ...data, token: assinarToken({ t: 'cliente', cid: data.id }) } : data);
 });
 
 // admin reseta PIN de cliente
@@ -634,22 +820,69 @@ app.post('/api/admin/clientes/:id/reset-pin', requireAdmin, async (req, res) => 
 
 // ── LOGIN CLIENTE COM PIN ───────────────────────────────────────────────────
 
-app.post('/api/clientes/login', async (req, res) => {
+// Anti-força-bruta no PIN do cliente (4 dígitos = só 10 mil combinações).
+// Bloqueia por IP E por nome de conta, para impedir tanto "varrer PINs de uma
+// conta" quanto "tentar um PIN em várias contas". 8 falhas → 10 min de bloqueio.
+const _loginFails = new Map();
+function loginBloqueado(chave) {
+  const f = _loginFails.get(chave);
+  return !!(f && Date.now() - f.start < 600000 && f.count >= 8);
+}
+function registrarFalhaLogin(chave) {
+  const now = Date.now();
+  let f = _loginFails.get(chave);
+  if (!f || now - f.start > 600000) { f = { start: now, count: 0 }; _loginFails.set(chave, f); }
+  f.count++;
+}
+
+app.post('/api/clientes/login', rateLimit('login', 60000, 30), async (req, res) => {
   const { nome, pin } = req.body;
   if (!nome || !nome.trim()) return res.status(400).json({ error: 'Nome obrigatório' });
   if (!pin) return res.status(400).json({ error: 'Senha obrigatória' });
 
+  const chaveIp = 'ip:' + ipDe(req);
+  const chaveNome = 'nome:' + nome.trim().toLowerCase();
+  if (loginBloqueado(chaveIp) || loginBloqueado(chaveNome)) {
+    return res.status(429).json({ error: 'Muitas tentativas. Aguarde alguns minutos e tente de novo.' });
+  }
+
   const { data, error } = await supabase
     .from('clientes').select('*').ilike('nome', nome.trim()).limit(1);
   if (error) return res.status(500).json({ error: error.message });
-  if (!data || data.length === 0) return res.status(404).json({ error: 'Cliente não encontrado' });
+  if (!data || data.length === 0) {
+    registrarFalhaLogin(chaveIp); registrarFalhaLogin(chaveNome);
+    return res.status(404).json({ error: 'Cliente não encontrado' });
+  }
 
   const cliente = data[0];
   if (!cliente.pin_hash) return res.status(401).json({ error: 'sem_pin', message: 'Cliente sem senha cadastrada', codigo: cliente.codigo });
 
-  if (cliente.pin_hash !== hashPin(pin)) return res.status(401).json({ error: 'Pin incorreto' });
+  if (cliente.pin_hash !== hashPin(pin)) {
+    registrarFalhaLogin(chaveIp); registrarFalhaLogin(chaveNome);
+    return res.status(401).json({ error: 'Pin incorreto' });
+  }
 
-  res.json({ id: cliente.id, nome: cliente.nome, codigo: cliente.codigo, saldo: cliente.saldo, avatar: cliente.avatar || null });
+  // Login OK → zera o contador de falhas dessa conta/IP.
+  _loginFails.delete(chaveIp); _loginFails.delete(chaveNome);
+
+  res.json({ id: cliente.id, nome: cliente.nome, codigo: cliente.codigo, saldo: cliente.saldo, avatar: cliente.avatar || null, token: assinarToken({ t: 'cliente', cid: cliente.id }) });
+});
+
+// Primeira definição de senha de uma conta SEM PIN (criada por staff no balcão).
+// Público de propósito (a pessoa ainda não tem token), mas só funciona se a conta
+// realmente não tiver senha ainda — depois disso só o dono (token) edita. Devolve
+// um token para já deixar a pessoa logada.
+app.post('/api/clientes/:id/definir-pin', rateLimit('definirpin', 60000, 30), async (req, res) => {
+  const { pin, avatar } = req.body;
+  if (!/^\d{4}$/.test(String(pin || ''))) return res.status(400).json({ error: 'PIN deve ter 4 dígitos numéricos' });
+  const { data: cli } = await supabase.from('clientes').select('id,pin_hash').eq('id', req.params.id).maybeSingle();
+  if (!cli) return res.status(404).json({ error: 'Cliente não encontrado' });
+  if (cli.pin_hash) return res.status(409).json({ error: 'Esta conta já tem senha. Faça login.' });
+  const updates = { pin_hash: hashPin(String(pin)) };
+  if (avatar !== undefined && await avatarColunaExiste()) updates.avatar = avatar;
+  const { data, error } = await supabase.from('clientes').update(updates).eq('id', req.params.id).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ id: data.id, nome: data.nome, codigo: data.codigo, saldo: data.saldo, avatar: data.avatar || null, token: assinarToken({ t: 'cliente', cid: data.id }) });
 });
 
 // ── RECARGA ──────────────────────────────────────────────────────────────────
@@ -682,25 +915,9 @@ app.post('/api/clientes/:id/recarregar', requireStaff, async (req, res) => {
 });
 
 // ── CLIENTES CRUD ─────────────────────────────────────────────────────────────
-
-app.put('/api/clientes/:id', async (req, res) => {
-  const { nome, saldo, pin } = req.body;
-  if (!nome && saldo === undefined && pin === undefined) return res.status(400).json({ error: 'Nada para atualizar' });
-  const updates = {};
-  if (nome) updates.nome = nome.trim();
-  if (saldo !== undefined) updates.saldo = parseFloat(saldo);
-  if (pin !== undefined) updates.pin_hash = pin ? hashPin(pin) : null;
-  const { data, error } = await supabase
-    .from('clientes').update(updates).eq('id', req.params.id).select().single();
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
-});
-
-app.delete('/api/clientes/:id', async (req, res) => {
-  const { error } = await supabase.from('clientes').delete().eq('id', req.params.id);
-  if (error) return res.status(500).json({ error: error.message });
-  res.json({ ok: true });
-});
+// (As rotas PUT/DELETE /api/clientes/:id ficam definidas mais acima, já com
+//  autorização. As duplicatas SEM auth que existiam aqui foram removidas — eram
+//  o vetor de "setar saldo" e "apagar cliente" sem código.)
 
 // ── BARRACAS CRUD ─────────────────────────────────────────────────────────────
 
@@ -766,11 +983,11 @@ app.post('/api/auth/gerente', rateLimit('auth', 60000, 20), async (req, res) => 
     .eq('codigo', codigo.trim()).eq('ativa', true).maybeSingle();
   if (error) return res.status(500).json({ error: error.message });
   if (!barraca) return res.status(401).json({ error: 'Código inválido ou barraca inativa' });
-  res.json({ ok: true, barraca });
+  res.json({ ok: true, barraca, token: assinarToken({ t: 'gerente', barraca_id: barraca.id }) });
 });
 
 // Regenerar código de uma barraca (admin)
-app.post('/api/barracas/:id/regenerar-codigo', async (req, res) => {
+app.post('/api/barracas/:id/regenerar-codigo', requireAdmin, async (req, res) => {
   if (!await codigoColunaExiste()) {
     return res.status(503).json({ error: 'Execute o SQL de migração primeiro:\nALTER TABLE barracas ADD COLUMN IF NOT EXISTS codigo TEXT UNIQUE;' });
   }
@@ -785,7 +1002,7 @@ app.post('/api/barracas/:id/regenerar-codigo', async (req, res) => {
   }
 });
 
-app.put('/api/barracas/:id', async (req, res) => {
+app.put('/api/barracas/:id', requireStaff, async (req, res) => {
   const { nome, emoji, responsavel, codigo } = req.body;
   const updates = {};
   if (nome !== undefined) updates.nome = nome.trim();
@@ -809,7 +1026,7 @@ app.put('/api/barracas/:id', async (req, res) => {
   res.json(data);
 });
 
-app.post('/api/barracas', async (req, res) => {
+app.post('/api/barracas', requireAdmin, async (req, res) => {
   const { nome, emoji, responsavel } = req.body;
   if (!nome) return res.status(400).json({ error: 'Nome obrigatório' });
   const insert = { nome: nome.trim(), emoji: emoji || '🏪', responsavel: responsavel || null };
@@ -823,7 +1040,7 @@ app.post('/api/barracas', async (req, res) => {
   res.status(201).json(data);
 });
 
-app.delete('/api/barracas/:id', async (req, res) => {
+app.delete('/api/barracas/:id', requireAdmin, async (req, res) => {
   const { error } = await supabase
     .from('barracas').update({ ativa: false }).eq('id', req.params.id);
   if (error) return res.status(500).json({ error: error.message });
@@ -868,7 +1085,7 @@ app.delete('/api/admin/transacoes/:id', requireAdmin, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get('/api/admin/transacoes', async (req, res) => {
+app.get('/api/admin/transacoes', requireStaff, async (req, res) => {
   const { cliente_id, barraca_id, tipo, data, cliente_nome } = req.query;
 
   const filtroPedido = tipo === 'pedido';
@@ -956,7 +1173,7 @@ app.get('/api/admin/transacoes', async (req, res) => {
   res.json({ transacoes: unified, resumo });
 });
 
-app.get('/api/admin/export-csv', async (req, res) => {
+app.get('/api/admin/export-csv', requireStaff, async (req, res) => {
   const { data: tx } = await supabase
     .from('transacoes')
     .select(`*, clientes(nome,avatar), barracas(nome,emoji)`)
@@ -978,7 +1195,7 @@ app.get('/api/admin/export-csv', async (req, res) => {
 
 // ── FECHAR CAIXA ─────────────────────────────────────────────────────────────
 
-app.post('/api/admin/fechar-caixa', async (req, res) => {
+app.post('/api/admin/fechar-caixa', requireStaff, async (req, res) => {
   const { data } = req.body;
   if (!data) return res.status(400).json({ error: 'Data obrigatória' });
 
@@ -1071,7 +1288,7 @@ app.get('/api/barracas/:id', async (req, res) => {
 
 // ── QR PENDENTES ──────────────────────────────────────────────────────────────
 
-app.post('/api/qr', async (req, res) => {
+app.post('/api/qr', requireGerente, async (req, res) => {
   const { barraca_id, valor, itens } = req.body;
   if (!barraca_id || !valor) return res.status(400).json({ error: 'Dados incompletos' });
 
@@ -1112,7 +1329,7 @@ app.get('/api/qr/:id', async (req, res) => {
 
 // ── CONFIRMAR COMPRA (cliente escaneia QR) ────────────────────────────────────
 
-app.post('/api/comprar', async (req, res) => {
+app.post('/api/comprar', requireDono, async (req, res) => {
   const { qr_id, cliente_id } = req.body;
   if (!qr_id || !cliente_id) return res.status(400).json({ error: 'Dados incompletos' });
 
@@ -1183,7 +1400,7 @@ async function formaColunaExiste() {
   return _formaColunaExiste;
 }
 
-app.post('/api/vendas/especie', async (req, res) => {
+app.post('/api/vendas/especie', requireGerente, async (req, res) => {
   const { barraca_id, itens, pagamento, cliente_id, operador } = req.body;
   if (!barraca_id || !Array.isArray(itens) || !itens.length) {
     return res.status(400).json({ error: 'Dados incompletos' });
@@ -1227,7 +1444,7 @@ app.post('/api/vendas/especie', async (req, res) => {
 
 // ── TRANSAÇÕES ────────────────────────────────────────────────────────────────
 
-app.get('/api/transacoes', async (req, res) => {
+app.get('/api/transacoes', requireGerente, async (req, res) => {
   const { cliente_id, barraca_id, tipo, limit } = req.query;
   let query = supabase
     .from('transacoes')
@@ -1244,7 +1461,7 @@ app.get('/api/transacoes', async (req, res) => {
 
 // ── RELATÓRIO ADMIN ───────────────────────────────────────────────────────────
 
-app.get('/api/admin/relatorio', async (req, res) => {
+app.get('/api/admin/relatorio', requireStaff, async (req, res) => {
   // Busca tudo em paralelo: clientes, transacoes (QR), pedidos confirmados, barracas
   const [clientesAll, transacoes, pedidos, barracas] = await Promise.all([
     fetchAllRows((ini, fim) => supabase.from('clientes').select('*').order('nome').range(ini, fim)),
@@ -1405,7 +1622,7 @@ app.post('/api/pix/qr', async (req, res) => {
 
 // ── SYNC CARDÁPIO (admin) ─────────────────────────────────────────────────────
 // Insere produtos faltantes em cada barraca sem apagar os já existentes.
-app.post('/api/admin/sync-cardapio', async (req, res) => {
+app.post('/api/admin/sync-cardapio', requireAdmin, async (req, res) => {
   const { data: barracas, error: be } = await supabase
     .from('barracas').select('id,nome').eq('ativa', true);
   if (be) return res.status(500).json({ error: be.message });
@@ -1468,7 +1685,7 @@ app.get('/api/barracas/:id/produtos', async (req, res) => {
   res.json(data || []);
 });
 
-app.post('/api/barracas/:id/produtos', async (req, res) => {
+app.post('/api/barracas/:id/produtos', requireGerente, async (req, res) => {
   const { nome, preco, estoque } = req.body;
   if (!nome || !preco) return res.status(400).json({ error: 'Nome e preço obrigatórios' });
   const { data, error } = await supabase
@@ -1479,7 +1696,7 @@ app.post('/api/barracas/:id/produtos', async (req, res) => {
   res.status(201).json(data);
 });
 
-app.put('/api/produtos/:id', async (req, res) => {
+app.put('/api/produtos/:id', requireGerente, async (req, res) => {
   const { nome, preco, estoque, barraca_id } = req.body;
 
   // IDs "mem_X" são produtos do cardápio em memória (ainda não persistidos no banco).
@@ -1504,7 +1721,7 @@ app.put('/api/produtos/:id', async (req, res) => {
   res.json(data);
 });
 
-app.delete('/api/produtos/:id', async (req, res) => {
+app.delete('/api/produtos/:id', requireGerente, async (req, res) => {
   const { error } = await supabase
     .from('produtos').update({ ativo: false }).eq('id', req.params.id);
   if (error) return res.status(500).json({ error: error.message });
@@ -1512,7 +1729,7 @@ app.delete('/api/produtos/:id', async (req, res) => {
 });
 
 // Atualizar estoque de um produto
-app.put('/api/produtos/:id/estoque', async (req, res) => {
+app.put('/api/produtos/:id/estoque', requireGerente, async (req, res) => {
   const { estoque } = req.body;
   if (estoque === undefined || estoque === null) {
     return res.status(400).json({ error: 'Estoque obrigatório' });
@@ -1586,7 +1803,10 @@ function pedidoEhEspecie(pedido) {
 }
 
 // Criar pedido (cliente escolhe, desconta saldo, notifica barraca)
-app.post('/api/pedidos', async (req, res) => {
+// requireDono: o pedido só pode ser feito EM NOME do cliente logado (token) —
+// impede gastar o saldo de outra pessoa. O valor é recalculado pelo preço do
+// banco (valorOficial), nunca pelo preço enviado pelo navegador.
+app.post('/api/pedidos', requireDono, async (req, res) => {
   const { cliente_id, barraca_id, itens } = req.body;
   if (!cliente_id || !barraca_id || !itens || !itens.length) {
     return res.status(400).json({ error: 'Dados incompletos' });
@@ -1600,7 +1820,7 @@ app.post('/api/pedidos', async (req, res) => {
   if (cliente.error || !cliente.data) return res.status(404).json({ error: 'Cliente não encontrado' });
   if (barraca.error || !barraca.data) return res.status(404).json({ error: 'Barraca não encontrada' });
 
-  const valor = itens.reduce((s, i) => s + (parseFloat(i.preco) * (parseInt(i.qty) || 1)), 0);
+  const { valor } = await valorOficial(itens, barraca_id);
   if (valor <= 0) return res.status(400).json({ error: 'Valor inválido' });
 
   const saldoAtual = parseFloat(cliente.data.saldo);
@@ -1634,7 +1854,7 @@ app.post('/api/pedidos', async (req, res) => {
 
 // Pedidos em aberto de uma barraca (para o gerente): aguardando preparo
 // (pendente) e prontos aguardando retirada (pronto)
-app.get('/api/pedidos/pendentes/:barracaId', async (req, res) => {
+app.get('/api/pedidos/pendentes/:barracaId', requireGerente, async (req, res) => {
   const { data, error } = await supabase
     .from('pedidos')
     .select('*, clientes(nome,codigo,avatar)')
@@ -1647,7 +1867,7 @@ app.get('/api/pedidos/pendentes/:barracaId', async (req, res) => {
 
 // Marcar pedido como PRONTO para retirada (gerente).
 // Avisa o cliente de que pode ir à barraca buscar.
-app.post('/api/pedidos/:id/pronto', async (req, res) => {
+app.post('/api/pedidos/:id/pronto', requireGerente, async (req, res) => {
   const { data: pedido, error: pe } = await supabase
     .from('pedidos').select('*').eq('id', req.params.id).single();
   if (pe || !pedido) return res.status(404).json({ error: 'Pedido não encontrado' });
@@ -1664,7 +1884,7 @@ app.post('/api/pedidos/:id/pronto', async (req, res) => {
 // Aceita pedidos pendentes ou prontos (gerente pode entregar direto sem
 // passar pela etapa "pronto"). NÃO cria transacao — pedidos confirmados
 // são contados diretamente no relatorio para evitar dupla contagem com QR.
-app.post('/api/pedidos/:id/confirmar', async (req, res) => {
+app.post('/api/pedidos/:id/confirmar', requireGerente, async (req, res) => {
   const { data: pedido, error: pe } = await supabase
     .from('pedidos').select('*').eq('id', req.params.id).single();
   if (pe || !pedido) return res.status(404).json({ error: 'Pedido não encontrado' });
@@ -1701,7 +1921,7 @@ app.post('/api/pedidos/:id/receber', async (req, res) => {
 });
 
 // Cancelar pedido (gerente) — estorna saldo e restaura estoque
-app.post('/api/pedidos/:id/cancelar', async (req, res) => {
+app.post('/api/pedidos/:id/cancelar', requireGerente, async (req, res) => {
   const { motivo } = req.body;
   const { data: pedido, error: pe } = await supabase
     .from('pedidos').select('*').eq('id', req.params.id).single();
@@ -1767,7 +1987,7 @@ app.get('/api/pedidos/cliente/:clienteId', async (req, res) => {
 });
 
 // Histórico de pedidos de uma barraca (todos os status)
-app.get('/api/pedidos/historico/:barracaId', async (req, res) => {
+app.get('/api/pedidos/historico/:barracaId', requireGerente, async (req, res) => {
   const limit = Math.min(parseInt(req.query.limit) || 50, 200);
   const { data, error } = await supabase
     .from('pedidos').select('*, clientes(nome,codigo,avatar)')
@@ -1778,7 +1998,7 @@ app.get('/api/pedidos/historico/:barracaId', async (req, res) => {
 });
 
 // Vendas em espécie de hoje para uma barraca
-app.get('/api/vendas/especie/:barracaId', async (req, res) => {
+app.get('/api/vendas/especie/:barracaId', requireGerente, async (req, res) => {
   const hojeInicio = new Date(); hojeInicio.setHours(0,0,0,0);
   const { data, error } = await supabase
     .from('transacoes')
@@ -1817,7 +2037,7 @@ app.listen(PORT, async () => {
 });
 
 // ── ADMIN: MONITOR DE PEDIDOS ────────────────────────────────────────────────
-app.get('/api/admin/pedidos-monitor', async (req, res) => {
+app.get('/api/admin/pedidos-monitor', requireStaff, async (req, res) => {
   const agora = new Date();
   const hojeInicio = new Date(); hojeInicio.setHours(0,0,0,0);
 
@@ -1874,7 +2094,7 @@ app.delete('/api/admin/log', requireAdmin, async (req, res) => {
   res.json({ ok: true });
 });
 
-app.get('/api/admin/log', async (req, res) => {
+app.get('/api/admin/log', requireAdmin, async (req, res) => {
   const { limit } = req.query;
   // Se 'limit' vier explícito, respeita (ex.: dashboard). Sem limit, retorna TUDO
   // (paginação fica no front) — antes cortava em 200 e escondia registros.
@@ -1912,7 +2132,7 @@ app.post('/api/admin/log/:id/desfazer', requireAdmin, async (req, res) => {
   res.json({ ok, logId: log.id });
 });
 
-app.get('/api/admin/log/ultimo-excluir', async (req, res) => {
+app.get('/api/admin/log/ultimo-excluir', requireAdmin, async (req, res) => {
   const { entidade, nome } = req.query;
   const { data } = await supabase
     .from('activity_log')

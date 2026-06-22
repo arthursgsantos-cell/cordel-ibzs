@@ -33,11 +33,16 @@ SUPABASE_URL=https://xxxxxxxxxxx.supabase.co
 SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIs...
 ```
 
-### Desabilitar RLS (Row Level Security) para desenvolvimento
+### 🔒 Segurança: LIGAR o RLS (Row Level Security)
 
-No Supabase, vá em **Authentication → Policies** e para cada tabela
-(`clientes`, `barracas`, `transacoes`, `qr_pendentes`):
-- Clique em "Disable RLS" **ou** crie uma policy "Allow all" com `TRUE`
+> ⚠️ **NÃO desabilite o RLS.** O servidor usa a chave **service_role** (que ignora
+> o RLS), então o RLS pode — e deve — ficar **LIGADO**. Assim, se a chave pública
+> (anon) vazar, ninguém consegue acessar o banco direto, sem passar pelo servidor.
+
+Ordem correta (ver `supabase_migration_v8.sql`):
+1. No Render, configure `SUPABASE_SERVICE_ROLE_KEY` e `SESSION_SECRET`.
+2. Faça o redeploy e confirme que o app abre normal.
+3. Só então rode `supabase_migration_v8.sql` no **SQL Editor** (liga o RLS).
 
 ---
 

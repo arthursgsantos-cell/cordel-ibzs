@@ -220,9 +220,12 @@
       <label>Confirme a senha</label>
       <input type="password" id="criar-pin-confirma" class="form-control" placeholder="●●●●" maxlength="4" pattern="[0-9]*" inputmode="numeric" style="text-align:center;font-size:1.8rem;letter-spacing:12px;" />
     </div>
-    <!-- Anti-robô: renderizado por JS quando há Site Key configurada -->
-    <div id="turnstile-cadastro" style="display:flex;justify-content:center;margin-top:14px;"></div>
-    <button class="btn btn-primary" style="margin-top:8px;" onclick="confirmarCriarPin()">🔐 Criar Conta</button>
+    <!-- Gate de presença: só cria conta quem chegou pelo QR Code da festa -->
+    <div id="cadastro-aviso" style="display:none;background:#fff7ed;border:2px solid #fdba74;border-radius:12px;padding:14px;margin-top:14px;font-size:0.9rem;color:#7c2d12;text-align:center;">
+      📷 <strong>Cadastro só na festa.</strong><br>
+      Aponte a câmera do seu celular para o <strong>QR Code de cadastro</strong> espalhado no evento para liberar a criação da sua conta.
+    </div>
+    <button id="btn-criar-conta" class="btn btn-primary" style="margin-top:14px;" onclick="confirmarCriarPin()">🔐 Criar Conta</button>
     <button class="btn btn-outline btn-sm" style="margin-top:10px;" onclick="voltarLogin()">Já tenho conta</button>
   </div>
 </div>
@@ -681,6 +684,22 @@
         <p style="font-size:0.82rem;color:#9aaccc;">A senha deve ter de 4 a 8 dígitos numéricos. Ao trocar a senha do admin, anote em local seguro — ela é exigida no link "Admin" do rodapé.</p>
         <div id="senhas-aviso-migracao" style="display:none;background:#fff5f5;border:2px solid #fca5a5;border-radius:10px;padding:12px;font-size:0.85rem;color:#7f1d1d;margin-top:8px;">
           ⚠️ A tabela <strong>config</strong> ainda não existe no Supabase. Rode o arquivo <code>supabase_migration_v2.sql</code> no SQL Editor para poder alterar as senhas.
+        </div>
+      </div>
+
+      <!-- QR de cadastro: gate de presença física -->
+      <div class="card">
+        <div class="card-title">📷 QR Code de Cadastro (da festa)</div>
+        <p style="font-size:0.9rem;color:#3A6EC8;margin-bottom:12px;">
+          Imprima e espalhe este QR Code no evento. <strong>Só quem escaneia ele consegue criar conta</strong> — é o que impede cadastro de robôs pela internet. Se o código vazar, gere um novo (o antigo para de funcionar na hora).
+        </p>
+        <div id="cadastro-qr-box" style="text-align:center;padding:8px;">
+          <div id="cadastro-qr-img" style="display:flex;justify-content:center;"></div>
+          <div style="margin-top:8px;font-size:0.85rem;color:#1E3A6E;">Código atual: <strong id="cadastro-qr-codigo">—</strong></div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">
+          <button class="btn btn-primary btn-sm" style="flex:1;min-width:120px;" onclick="imprimirCadastroQR()">🖨️ Imprimir</button>
+          <button class="btn btn-outline btn-sm" style="flex:1;min-width:120px;" onclick="regenerarCadastroCodigo()">🔄 Gerar novo código</button>
         </div>
       </div>
     </div>
