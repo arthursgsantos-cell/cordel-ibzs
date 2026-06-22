@@ -498,6 +498,13 @@ app.post('/api/clientes', rateLimit('signup', 60000, 15), async (req, res) => {
   const { nome, pin, avatar } = req.body;
   if (!nome || !nome.trim()) return res.status(400).json({ error: 'Nome obrigatório' });
 
+  // Anti-bot: o spam de cadastro usa "Nome Sobrenome <número longo>" para
+  // furar a checagem de nome duplicado. Nomes humanos não terminam em 3+
+  // dígitos (a dica do app sugere no máx. "João Silva 2"). Bloqueia o padrão.
+  if (/\d{3,}$/.test(nome.trim())) {
+    return res.status(400).json({ error: 'Nome inválido. Evite números longos no final do nome.' });
+  }
+
   const { data: existente } = await supabase
     .from('clientes').select('id').ilike('nome', nome.trim()).limit(1);
   if (existente && existente.length > 0) {
