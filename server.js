@@ -485,22 +485,6 @@ app.get('/api/config', (req, res) => {
   res.json({ turnstileSiteKey: process.env.TURNSTILE_SITE_KEY || '' });
 });
 
-// TEMP DIAGNÓSTICO Turnstile — remover depois. Não vaza a secret; só diz se está
-// setada e quais error-codes o Cloudflare retorna pro token enviado.
-app.post('/api/turnstile-debug', async (req, res) => {
-  const secret = process.env.TURNSTILE_SECRET_KEY || '';
-  const out = { secretDefinida: !!secret, secretLen: secret.length, secretPrefixo: secret.slice(0, 6) };
-  if (!secret) return res.json({ ...out, nota: 'TURNSTILE_SECRET_KEY vazia → modo transição (não bloqueia)' });
-  try {
-    const r = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
-      method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ secret, response: String(req.body.turnstileToken || ''), remoteip: ipDe(req) }),
-    });
-    const j = await r.json();
-    res.json({ ...out, success: j.success, errorCodes: j['error-codes'] || [], hostname: j.hostname });
-  } catch (e) { res.json({ ...out, fetchErro: e.message }); }
-});
-
 app.post('/api/auth/perfil', rateLimit('auth', 60000, 20), async (req, res) => {
   const { perfil, codigo } = req.body;
   if (!['admin', 'caixa'].includes(perfil)) return res.status(400).json({ error: 'Perfil inválido' });
