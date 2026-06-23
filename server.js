@@ -697,20 +697,32 @@ app.get('/api/admin/senhas', requireAdmin, async (req, res) => {
 });
 
 // QR de cadastro (gate de presença): admin exibe/imprime para colar na festa.
+// try/catch: em Express 4 um throw async sem captura deixa a requisição PENDURADA
+// (sem resposta) — o front ficava só com "—" sem erro. Aqui sempre respondemos.
 app.get('/api/admin/cadastro', requireAdmin, async (req, res) => {
-  const info = await montarCadastroQR(req);
-  res.json({ ...info, persistido: await configTabelaExiste() });
+  try {
+    const info = await montarCadastroQR(req);
+    res.json({ ...info, persistido: await configTabelaExiste() });
+  } catch (e) {
+    console.error('[cadastro QR] falha ao montar:', e);
+    res.status(500).json({ error: 'Falha ao gerar o QR de cadastro: ' + (e && e.message || e) });
+  }
 });
 
 // Gera um novo código (e novo QR) — invalida o anterior. Use se o código vazar.
 app.post('/api/admin/cadastro/regenerar', requireAdmin, async (req, res) => {
-  const novo = 'C' + Math.random().toString(36).substring(2, 7).toUpperCase();
-  if (!await setCodigoCadastro(novo)) {
-    return res.status(503).json({ error: 'Tabela "config" não existe. Rode supabase_migration_v2.sql.' });
+  try {
+    const novo = 'C' + Math.random().toString(36).substring(2, 7).toUpperCase();
+    if (!await setCodigoCadastro(novo)) {
+      return res.status(503).json({ error: 'Tabela "config" não existe. Rode supabase_migration_v2.sql.' });
+    }
+    await logAtividade('editar', 'config', null, { item: 'codigo_cadastro' }, 'admin', 'Admin', false);
+    const info = await montarCadastroQR(req);
+    res.json({ ok: true, ...info });
+  } catch (e) {
+    console.error('[cadastro QR] falha ao regenerar:', e);
+    res.status(500).json({ error: 'Falha ao gerar novo código: ' + (e && e.message || e) });
   }
-  await logAtividade('editar', 'config', null, { item: 'codigo_cadastro' }, 'admin', 'Admin', false);
-  const info = await montarCadastroQR(req);
-  res.json({ ok: true, ...info });
 });
 
 app.put('/api/admin/senhas', requireAdmin, async (req, res) => {

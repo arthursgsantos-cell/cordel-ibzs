@@ -2487,11 +2487,19 @@ function toggleVerSenha(inputId, btn) {
 // ── QR de cadastro (gate de presença) ────────────────────────────────────────
 let _cadastroQR = null; // {codigo, url, qr}
 async function carregarCadastroQR() {
-  const r = await api('/api/admin/cadastro');
-  if (!r || !r.qr) return;
-  _cadastroQR = r;
   const img = document.getElementById('cadastro-qr-img');
   const cod = document.getElementById('cadastro-qr-codigo');
+  if (img) img.innerHTML = '<div style="color:#9aaccc;font-size:0.85rem;padding:20px;">Carregando QR...</div>';
+  const r = await api('/api/admin/cadastro');
+  if (!r || !r.qr) {
+    if (cod) cod.textContent = '—';
+    if (img) img.innerHTML = `<div style="color:#b91c1c;font-size:0.85rem;padding:14px;">
+      ⚠️ Não foi possível carregar o QR.${r && r.error ? '<br><span style="color:#7f1d1d;">' + r.error + '</span>' : ''}
+      <br><button class="btn btn-outline btn-sm" style="margin-top:10px;width:auto;padding:6px 16px;" onclick="carregarCadastroQR()">🔄 Tentar de novo</button>
+    </div>`;
+    return;
+  }
+  _cadastroQR = r;
   if (img) img.innerHTML = `<img src="${r.qr}" alt="QR de cadastro" style="width:220px;height:220px;border-radius:12px;border:4px solid #1E3A6E;" />`;
   if (cod) cod.textContent = r.codigo;
 }
