@@ -101,10 +101,22 @@ async function requireAdmin(req, res, next) {
 //  Defina SESSION_SECRET no ambiente (Render) — senão um segredo aleatório é
 //  gerado a cada boot e todos precisam relogar quando o servidor reinicia.
 // ════════════════════════════════════════════════════════════════════════════
-const SESSION_SECRET = process.env.SESSION_SECRET
-  || (console.warn('⚠️  SESSION_SECRET não definido — usando segredo efêmero (todos relogam a cada restart). Defina no Render.'),
-      crypto.randomBytes(32).toString('hex'));
-const TOKEN_TTL_MS = 16 * 60 * 60 * 1000; // 16h — cobre um dia inteiro de evento
+// Resolve o segredo de assinatura. Prioridade:
+//  1) SESSION_SECRET explícito (ideal — defina no Render se quiser).
+//  2) Segredo ESTÁVEL derivado da credencial do Supabase (que já existe e é
+//     secreta no ambiente). Isso garante o MESMO segredo após restart/spin-down e
+//     entre instâncias — sem precisar configurar nada novo — e sem expor o segredo
+//     no código-fonte. Corrige o "logout instantâneo" causado por segredo efêmero.
+//  3) Último recurso: aleatório por boot (só se faltar tudo) — todos relogam ao reiniciar.
+function resolverSessionSecret() {
+  if (process.env.SESSION_SECRET) return process.env.SESSION_SECRET;
+  const base = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_URL;
+  if (base) return crypto.createHash('sha256').update('alegrias-sessao|' + base).digest('hex');
+  console.warn('⚠️  SESSION_SECRET e credenciais Supabase ausentes — segredo efêmero (todos relogam a cada restart).');
+  return crypto.randomBytes(32).toString('hex');
+}
+const SESSION_SECRET = resolverSessionSecret();
+const TOKEN_TTL_MS = 365 * 24 * 60 * 60 * 1000; // ~1 ano: sessão praticamente sem expiração
 
 function assinarToken(payload) {
   const body = Buffer.from(JSON.stringify({ ...payload, exp: Date.now() + TOKEN_TTL_MS })).toString('base64url');
