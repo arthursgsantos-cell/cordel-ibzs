@@ -769,15 +769,25 @@
     <div id="tab-admin-clientes" class="tab-content">
       <div class="card">
         <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
-          <input type="text" id="admin-busca-cliente" class="form-control" placeholder="Buscar cliente..." style="flex:1;min-width:180px;" onkeyup="buscarAdminClientes()" />
+          <input type="text" id="admin-busca-cliente" class="form-control" placeholder="Buscar cliente..." style="flex:1;min-width:180px;" onkeyup="aplicarFiltrosClientes()" />
           <button class="btn btn-primary btn-sm" style="width:auto;padding:12px 14px;" onclick="abrirScannerAdmin()">📷 Ler QR</button>
           <button class="btn btn-outline btn-sm" style="width:auto;padding:12px 14px;" onclick="mostrarModalNovoCliente()">➕ Novo</button>
           <button class="btn btn-outline btn-sm" style="width:auto;padding:12px 14px;" onclick="confirmarLimparBots()">🧹 Limpar bots</button>
           <button class="btn btn-danger btn-sm" style="width:auto;padding:12px 14px;" onclick="confirmarApagarTodosClientes()">🗑️ Apagar todos</button>
         </div>
+        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center;">
+          <select id="admin-filtro-cliente" class="form-control" style="width:auto;min-width:150px;" onchange="aplicarFiltrosClientes()">
+            <option value="">Todos os clientes</option>
+            <option value="com-saldo">Com saldo</option>
+            <option value="sem-saldo">Sem saldo</option>
+            <option value="com-senha">Com senha</option>
+            <option value="sem-senha">Sem senha</option>
+          </select>
+          <span id="admin-clientes-contador" style="font-size:0.82rem;color:#9aaccc;"></span>
+        </div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Nome</th><th>Código</th><th style="text-align:right;">Saldo</th><th style="text-align:center;">Ações</th></tr></thead>
+            <thead id="admin-clientes-thead"></thead>
             <tbody id="admin-clientes-tabela"></tbody>
           </table>
         </div>

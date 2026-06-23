@@ -2710,33 +2710,96 @@ async function cadastrarClientePorAdmin(nome) {
   else toast(c.error || 'Erro!', 'error');
 }
 
-async function buscarAdminClientes() {
-  const q = document.getElementById('admin-busca-cliente').value.trim();
-  const r = await api('/api/admin/relatorio');
-  const clientes = (r.clientes || []).filter(c => !q || c.nome.toLowerCase().includes(q.toLowerCase()));
-  renderTabelaClientes(clientes);
-}
+// Lista-mestre dos clientes (carregada no relatório) + estado de filtro/ordenação.
+let _clientesAll = [];
+let _clientesSort = { campo: 'criado_em', dir: 'desc' }; // padrão: mais recentes primeiro
+
+// (compat) chamada antiga: agora só re-aplica filtros sobre a lista em memória.
+function buscarAdminClientes() { aplicarFiltrosClientes(); }
 
 function renderTabelaClientes(clientes) {
-  const sorted = [...clientes].sort((a, b) => b.saldo - a.saldo);
-  _pag.clientes = { ..._pag.clientes, scrollTo: 'admin-clientes-tabela' };
-  pagSet('clientes', sorted, _renderClientesPagina);
+  _clientesAll = clientes || [];
+  aplicarFiltrosClientes();
 }
+
+// Lê busca + filtro do DOM, aplica sobre _clientesAll, ordena e pagina.
+function aplicarFiltrosClientes() {
+  const q = (document.getElementById('admin-busca-cliente')?.value || '').trim().toLowerCase();
+  const filtro = document.getElementById('admin-filtro-cliente')?.value || '';
+  let lista = _clientesAll.filter(c => {
+    if (q && !(c.nome || '').toLowerCase().includes(q) && !(c.codigo || '').toLowerCase().includes(q)) return false;
+    if (filtro === 'com-saldo'  && !(c.saldo > 0))  return false;
+    if (filtro === 'sem-saldo'  && !(c.saldo <= 0)) return false;
+    if (filtro === 'com-senha'  && !c.pin_hash)     return false;
+    if (filtro === 'sem-senha'  &&  c.pin_hash)     return false;
+    return true;
+  });
+
+  const { campo, dir } = _clientesSort;
+  const mult = dir === 'asc' ? 1 : -1;
+  lista.sort((a, b) => {
+    let va = a[campo], vb = b[campo];
+    if (campo === 'saldo') { va = +va || 0; vb = +vb || 0; return (va - vb) * mult; }
+    if (campo === 'criado_em') { va = va ? new Date(va).getTime() : 0; vb = vb ? new Date(vb).getTime() : 0; return (va - vb) * mult; }
+    return String(va || '').localeCompare(String(vb || ''), 'pt-BR') * mult;
+  });
+
+  const cont = document.getElementById('admin-clientes-contador');
+  if (cont) cont.textContent = `${lista.length} de ${_clientesAll.length} cliente${_clientesAll.length === 1 ? '' : 's'}`;
+
+  _pag.clientes = { ..._pag.clientes, scrollTo: 'admin-clientes-tabela' };
+  pagSet('clientes', lista, _renderClientesPagina);
+  _renderClientesThead();
+}
+
+// Cabeçalho com ordenação por clique (alterna asc/desc e mostra a seta).
+function ordenarClientes(campo) {
+  if (_clientesSort.campo === campo) _clientesSort.dir = _clientesSort.dir === 'asc' ? 'desc' : 'asc';
+  else _clientesSort = { campo, dir: campo === 'nome' || campo === 'codigo' ? 'asc' : 'desc' };
+  aplicarFiltrosClientes();
+}
+
+function _renderClientesThead() {
+  const cols = [
+    { campo: 'nome',      label: 'Nome',   align: 'left'  },
+    { campo: 'codigo',    label: 'Código', align: 'left'  },
+    { campo: 'saldo',     label: 'Saldo',  align: 'right' },
+    { campo: 'criado_em', label: 'Criado', align: 'left'  },
+  ];
+  const th = cols.map(col => {
+    const ativo = _clientesSort.campo === col.campo;
+    const seta = ativo ? (_clientesSort.dir === 'asc' ? ' ▲' : ' ▼') : '';
+    return `<th style="text-align:${col.align};cursor:pointer;user-select:none;${ativo ? 'color:#E91E8C;' : ''}" onclick="ordenarClientes('${col.campo}')">${col.label}${seta}</th>`;
+  }).join('');
+  const el = document.getElementById('admin-clientes-thead');
+  if (el) el.innerHTML = `<tr>${th}<th style="text-align:center;">Ações</th></tr>`;
+}
+
+// Data compacta: dd/mm HH:MM (ou '—' se não houver).
+function _fmtDataCliente(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (isNaN(d)) return '—';
+  return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) +
+    ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+}
+
 function _renderClientesPagina() {
   const linhas = pagSlice('clientes').map(c => `
     <tr>
       <td style="font-weight:600;"><span style="display:flex;align-items:center;gap:8px;">${avatarInline(c.avatar, 30, c.nome)}${c.nome}</span></td>
       <td><span class="badge badge-yellow">${c.codigo}</span></td>
       <td style="text-align:right;font-weight:700;color:#C8A020;">${c.saldo} 🌟</td>
+      <td style="font-size:0.82rem;color:#5a6b85;white-space:nowrap;">${_fmtDataCliente(c.criado_em)}</td>
       <td style="text-align:center;">
         <button class="btn btn-outline btn-sm" style="width:auto;padding:6px 12px;font-size:0.85rem;" onclick="abrirEditarCliente('${c.id}')">✏️</button>
         <button class="btn btn-danger btn-sm" style="width:auto;padding:6px 10px;font-size:0.8rem;" onclick="confirmarExcluirCliente('${c.id}','${c.nome.replace(/'/g,"\\'")}')">🗑️</button>
       </td>
     </tr>
-  `).join('') || '<tr><td colspan="4" style="text-align:center;color:#3A6EC8;">Nenhum cliente</td></tr>';
+  `).join('') || '<tr><td colspan="5" style="text-align:center;color:#3A6EC8;">Nenhum cliente</td></tr>';
   const barra = pagBarra('clientes');
   document.getElementById('admin-clientes-tabela').innerHTML =
-    linhas + (barra ? `<tr><td colspan="4" style="padding:0;">${barra}</td></tr>` : '');
+    linhas + (barra ? `<tr><td colspan="5" style="padding:0;">${barra}</td></tr>` : '');
 }
 
 async function confirmarExcluirCliente(id, nome) {
