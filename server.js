@@ -164,6 +164,23 @@ async function requireGerente(req, res, next) {
   return res.status(401).json({ error: 'Não autorizado' });
 }
 
+// Leitura de transações: staff/gerente veem tudo; o CLIENTE só vê as PRÓPRIAS
+// (precisa passar ?cliente_id= igual ao id do seu token). Isso é necessário porque
+// o cliente consulta o próprio histórico logo após o login (carregarHistoricoCliente);
+// sem isso, a 1ª requisição dele tomava 401 e parecia "sessão expirada".
+async function requireLeituraTransacoes(req, res, next) {
+  const tk = tokenDe(req);
+  if (tk && (tk.t === 'gerente' || tk.t === 'staff')) { req.authTok = tk; return next(); }
+  // Cliente lendo o PRÓPRIO histórico: resolve direto pelo token, sem tocar no banco.
+  if (tk && tk.t === 'cliente') {
+    const alvo = String(req.query.cliente_id || '');
+    if (alvo && String(tk.cid) === alvo) { req.clienteId = tk.cid; return next(); }
+  }
+  if (await checkStaff(req)) { req.staffAgindo = true; return next(); }
+  if (await codigoGerenteValido(req)) return next();
+  return res.status(401).json({ error: 'Não autorizado' });
+}
+
 // ── Anti-robô: Cloudflare Turnstile ("não sou um robô") ─────────────────────
 //  O spam de cadastro vem do autocadastro público (perfil 'cliente'). Aqui o
 //  cliente precisa passar no Turnstile. Staff (caixa/admin) e gerente autenticado
@@ -1458,7 +1475,7 @@ app.post('/api/vendas/especie', requireGerente, async (req, res) => {
 
 // ── TRANSAÇÕES ────────────────────────────────────────────────────────────────
 
-app.get('/api/transacoes', requireGerente, async (req, res) => {
+app.get('/api/transacoes', requireLeituraTransacoes, async (req, res) => {
   const { cliente_id, barraca_id, tipo, limit } = req.query;
   let query = supabase
     .from('transacoes')
