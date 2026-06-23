@@ -242,6 +242,67 @@ function atualizarAvisoCadastro() {
   if (btn) { btn.disabled = !temCodigo; btn.style.opacity = temCodigo ? '1' : '0.45'; }
 }
 
+// ── Scanner de QR Code de cadastro ──────────────────────────────────────────
+let _scannerStream = null;
+let _scannerRaf = null;
+
+async function abrirScannerQR() {
+  const modal = document.getElementById('modal-scanner-qr');
+  const video = document.getElementById('scanner-video');
+  const status = document.getElementById('scanner-status');
+  if (!modal || !video) return;
+  modal.classList.remove('hidden');
+  status.textContent = 'Abrindo câmera...';
+  try {
+    _scannerStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+    video.srcObject = _scannerStream;
+    await video.play();
+    status.textContent = 'Procurando QR Code...';
+    _scannerRaf = requestAnimationFrame(_scannerTick);
+  } catch (e) {
+    status.textContent = 'Não foi possível acessar a câmera.';
+  }
+}
+
+function _scannerTick() {
+  const video = document.getElementById('scanner-video');
+  const canvas = document.getElementById('scanner-canvas');
+  const status = document.getElementById('scanner-status');
+  if (!video || !canvas || video.readyState !== video.HAVE_ENOUGH_DATA) {
+    _scannerRaf = requestAnimationFrame(_scannerTick);
+    return;
+  }
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const result = window.jsQR && window.jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'dontInvert' });
+  if (result && result.data) {
+    try {
+      const u = new URL(result.data);
+      const c = u.searchParams.get('cad');
+      if (c && c.trim()) {
+        localStorage.setItem('alegrias_cad', c.trim());
+        estado.codigoCadastro = c.trim();
+        fecharScannerQR();
+        atualizarAvisoCadastro();
+        toast('QR Code lido! Agora você pode criar sua conta.', 'success');
+        return;
+      }
+    } catch {}
+    if (status) status.textContent = 'QR inválido. Tente o QR de cadastro.';
+  }
+  _scannerRaf = requestAnimationFrame(_scannerTick);
+}
+
+function fecharScannerQR() {
+  const modal = document.getElementById('modal-scanner-qr');
+  if (modal) modal.classList.add('hidden');
+  if (_scannerStream) { _scannerStream.getTracks().forEach(t => t.stop()); _scannerStream = null; }
+  if (_scannerRaf) { cancelAnimationFrame(_scannerRaf); _scannerRaf = null; }
+}
+
 // ── Anti-robô: widget Turnstile no autocadastro ─────────────────────────────
 // Site Key é PÚBLICA (fica visível no HTML de qualquer jeito) — fixada aqui para
 // não depender de env e nunca ficar errada. A Secret Key (server) vai no Render.

@@ -9,6 +9,8 @@
   <link rel="stylesheet" href="style.css" />
   <!-- Anti-robô: Cloudflare Turnstile (widget "não sou um robô") -->
   <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+  <!-- Leitura de QR Code pela câmera (tela de cadastro) -->
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
 </head>
 <body>
 
@@ -24,6 +26,24 @@
 
 <!-- ── TOAST ──────────────────────────────────────────────────── -->
 <div id="toast"></div>
+
+<!-- ── MODAL SCANNER QR CADASTRO ──────────────────────────────── -->
+<div id="modal-scanner-qr" class="modal-overlay hidden">
+  <div class="modal-box" style="max-width:360px;">
+    <h3>📷 Escanear QR Code</h3>
+    <p style="font-size:0.85rem;color:#7c2d12;margin-bottom:12px;">Aponte a câmera para o QR Code de cadastro</p>
+    <div style="position:relative;width:100%;border-radius:12px;overflow:hidden;background:#000;">
+      <video id="scanner-video" autoplay playsinline muted style="width:100%;display:block;border-radius:12px;"></video>
+      <canvas id="scanner-canvas" style="display:none;"></canvas>
+      <!-- Mira -->
+      <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;">
+        <div style="width:180px;height:180px;border:3px solid #ea580c;border-radius:16px;box-shadow:0 0 0 9999px rgba(0,0,0,0.45);"></div>
+      </div>
+    </div>
+    <p id="scanner-status" style="margin-top:12px;font-size:0.85rem;color:#1E3A6E;min-height:20px;">Procurando QR Code...</p>
+    <button class="btn btn-outline btn-sm" style="margin-top:12px;width:auto;padding:10px 32px;" onclick="fecharScannerQR()">Cancelar</button>
+  </div>
+</div>
 
 <!-- ── MODAL QR ───────────────────────────────────────────────── -->
 <div id="modal-qr" class="modal-overlay hidden">
@@ -222,8 +242,11 @@
     </div>
     <!-- Gate de presença: só cria conta quem chegou pelo QR Code da festa -->
     <div id="cadastro-aviso" style="display:none;background:#fff7ed;border:2px solid #fdba74;border-radius:12px;padding:14px;margin-top:14px;font-size:0.9rem;color:#7c2d12;text-align:center;">
-      📷 <strong>Cadastro só na festa.</strong><br>
-      Aponte a câmera do seu celular para o <strong>QR Code de cadastro</strong> espalhado no evento para liberar a criação da sua conta.
+      📷 <strong>Cadastro só com QR Code.</strong><br>
+      Os QR Codes de cadastro estarão disponíveis <strong>na festa</strong> e também <strong>na igreja nos horários de culto</strong>. Escaneie para liberar a criação da sua conta.
+      <button onclick="abrirScannerQR()" style="margin-top:12px;display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:12px;background:#ea580c;color:#fff;border:none;border-radius:10px;font-size:1rem;font-weight:700;cursor:pointer;">
+        📷 Escanear QR Code
+      </button>
     </div>
     <button id="btn-criar-conta" class="btn btn-primary" style="margin-top:14px;" onclick="confirmarCriarPin()">🔐 Criar Conta</button>
     <button class="btn btn-outline btn-sm" style="margin-top:10px;" onclick="voltarLogin()">Já tenho conta</button>
