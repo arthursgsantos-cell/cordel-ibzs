@@ -734,6 +734,26 @@
           <div class="card-title" style="margin:0;">📝 Log de Atividades</div>
           <button class="btn btn-danger btn-sm" style="width:auto;padding:8px 14px;" onclick="apagarLogAdmin()">🗑️ Limpar histórico</button>
         </div>
+        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center;">
+          <input type="text" id="admin-busca-log" class="form-control" placeholder="🔎 Buscar (nome, ação, quem fez...)" style="flex:1;min-width:180px;" onkeyup="aplicarFiltrosLog()" />
+          <select id="admin-filtro-log-acao" class="form-control" style="width:auto;min-width:140px;" onchange="aplicarFiltrosLog()">
+            <option value="">Todas as ações</option>
+            <option value="criar">Criar</option>
+            <option value="excluir">Excluir</option>
+            <option value="editar">Editar</option>
+            <option value="recarregar">Recarregar</option>
+            <option value="vender">Vender</option>
+            <option value="confirmar">Confirmar</option>
+          </select>
+          <select id="admin-filtro-log-perfil" class="form-control" style="width:auto;min-width:130px;" onchange="aplicarFiltrosLog()">
+            <option value="">Todos os perfis</option>
+            <option value="cliente">Cliente</option>
+            <option value="caixa">Caixa</option>
+            <option value="gerente">Gerente</option>
+            <option value="admin">Admin</option>
+          </select>
+          <span id="admin-log-contador" style="font-size:0.82rem;color:#9aaccc;"></span>
+        </div>
         <div id="admin-log-lista" style="max-height:500px;overflow-y:auto;"></div>
       </div>
     </div>

@@ -2551,18 +2551,50 @@ function restaurarTabAdmin() {
   else if (tab === 'monitor') iniciarMonitorPedidos();
 }
 
+let _logAll = []; // lista-mestre do log, para filtrar em memória
+
 async function carregarLogAdmin() {
   const logs = await api('/api/admin/log');
   const cont = document.getElementById('admin-log-lista');
   if (!Array.isArray(logs) || !logs.length) {
+    _logAll = [];
     cont.innerHTML = '<p style="color:#3A6EC8;text-align:center;padding:20px;">Nenhuma atividade ainda.</p>';
+    const c = document.getElementById('admin-log-contador'); if (c) c.textContent = '';
     return;
   }
+  _logAll = logs;
+  aplicarFiltrosLog();
+}
+
+// Filtra o log por texto livre + ação + perfil, tudo em memória.
+function aplicarFiltrosLog() {
+  const q = (document.getElementById('admin-busca-log')?.value || '').trim().toLowerCase();
+  const fAcao = document.getElementById('admin-filtro-log-acao')?.value || '';
+  const fPerfil = document.getElementById('admin-filtro-log-perfil')?.value || '';
+  const lista = _logAll.filter(l => {
+    if (fAcao && l.acao !== fAcao) return false;
+    if (fPerfil && l.perfil !== fPerfil) return false;
+    if (q) {
+      const alvo = [l.acao, l.entidade, l.perfil, l.perfil_nome,
+        l.detalhes ? Object.values(l.detalhes).join(' ') : '']
+        .join(' ').toLowerCase();
+      if (!alvo.includes(q)) return false;
+    }
+    return true;
+  });
+
+  const c = document.getElementById('admin-log-contador');
+  if (c) c.textContent = `${lista.length} de ${_logAll.length} registro${_logAll.length === 1 ? '' : 's'}`;
+
   _pag.log = { ..._pag.log, scrollTo: 'admin-log-lista' };
-  pagSet('log', logs, _renderLogPagina);
+  pagSet('log', lista, _renderLogPagina);
 }
 function _renderLogPagina() {
   const cont = document.getElementById('admin-log-lista');
+  if (!pagSlice('log').length) {
+    cont.innerHTML = '<p style="color:#3A6EC8;text-align:center;padding:20px;">Nenhum registro encontrado para esse filtro.</p>';
+    return;
+  }
   const acaoIcon = { criar: '➕', excluir: '🗑️', editar: '✏️', recarregar: '💰', vender: '🛒', confirmar: '✅' };
   cont.innerHTML = pagSlice('log').map(l => {
     const icon = acaoIcon[l.acao] || '📌';
