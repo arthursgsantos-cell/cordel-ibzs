@@ -2512,18 +2512,76 @@ function imprimirCadastroQR() {
   if (!_cadastroQR || !_cadastroQR.qr) { toast('QR ainda não carregou.', 'error'); return; }
   const w = window.open('', '_blank');
   if (!w) { toast('Permita pop-ups para imprimir.', 'error'); return; }
-  w.document.write(`<!doctype html><html><head><title>QR de Cadastro — Cordel 2026</title>
-    <style>body{font-family:system-ui,Arial,sans-serif;text-align:center;padding:40px;color:#1E3A6E}
-    h1{font-size:28px;margin:0 0 4px}h2{font-size:18px;color:#3A6EC8;font-weight:600;margin:0 0 24px}
-    img{width:360px;height:360px;border:6px solid #1E3A6E;border-radius:18px}
-    p{font-size:20px;margin-top:24px}.cod{font-size:15px;color:#888;margin-top:8px}</style></head>
+  const logo = location.origin + '/assets/logo.png';
+  // Bandeirinhas juninas nas cores da logo (triângulos pendurados num barbante).
+  const cores = ['#E8458C', '#C8A020', '#3A6EC8', '#3D8A3A', '#5BA8D8'];
+  const flags = Array.from({ length: 15 }, (_, i) => `<i style="--c:${cores[i % cores.length]}"></i>`).join('');
+  w.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8" />
+    <title>QR de Cadastro — Cordel 2026</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+      *{box-sizing:border-box;margin:0;padding:0}
+      html,body{height:100%}
+      body{font-family:'Fredoka',system-ui,Arial,sans-serif;color:#1E3A6E;
+        background:linear-gradient(160deg,#EEF2FF 0%,#D8E4FF 100%);
+        display:flex;align-items:center;justify-content:center;padding:28px;
+        -webkit-print-color-adjust:exact;print-color-adjust:exact}
+      .card{width:520px;max-width:100%;background:#fff;border-radius:28px;
+        box-shadow:0 18px 50px rgba(30,58,110,0.18);overflow:hidden;
+        border:3px solid #D8E4FF}
+      /* Bandeirinhas */
+      .bunting{display:flex;justify-content:center;gap:0;padding-top:14px;position:relative}
+      .bunting::before{content:"";position:absolute;top:18px;left:24px;right:24px;
+        height:3px;background:#1E3A6E;border-radius:2px;opacity:.35}
+      .bunting i{width:0;height:0;margin:0 1px;
+        border-left:13px solid transparent;border-right:13px solid transparent;
+        border-top:20px solid var(--c)}
+      .inner{padding:8px 36px 34px;text-align:center}
+      .logo{height:96px;object-fit:contain;margin:6px auto 2px;display:block}
+      .sub{font-size:15px;color:#3A6EC8;font-weight:600;margin-bottom:18px}
+      h1{font-size:32px;font-weight:700;line-height:1.1;margin-bottom:4px}
+      .lead{font-size:17px;color:#E8458C;font-weight:600;margin-bottom:20px}
+      .qr-frame{display:inline-block;padding:16px;border-radius:22px;
+        background:linear-gradient(135deg,#1E3A6E,#3A6EC8);
+        box-shadow:0 10px 26px rgba(30,58,110,0.25)}
+      .qr-frame img{display:block;width:300px;height:300px;border-radius:12px;background:#fff}
+      .steps{display:flex;justify-content:center;gap:18px;margin:24px 0 6px;flex-wrap:wrap}
+      .step{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:500}
+      .num{width:26px;height:26px;border-radius:50%;background:#E8458C;color:#fff;
+        font-weight:700;display:flex;align-items:center;justify-content:center;font-size:14px}
+      .where{margin-top:18px;font-size:15px;background:#FFF7ED;border:2px solid #FDBA74;
+        color:#7C2D12;border-radius:14px;padding:12px 16px;font-weight:500}
+      .where strong{color:#9A3412}
+      .foot{margin-top:18px;font-size:14px;color:#3A6EC8;font-weight:600}
+      .cod{margin-top:10px;display:inline-block;font-size:12px;color:#94a3b8;
+        background:#F1F5F9;border-radius:999px;padding:4px 12px;letter-spacing:1px}
+      @media print{
+        body{background:#fff;padding:0}
+        .card{box-shadow:none;border:none}
+        @page{size:A4;margin:14mm}
+      }
+    </style></head>
     <body>
-      <h1>📷 Crie sua conta aqui!</h1>
-      <h2>Aponte a câmera do celular para o QR Code</h2>
-      <img src="${_cadastroQR.qr}" />
-      <p><strong>Festa Cordel 2026</strong> · Igreja Batista Zona Sul</p>
-      <div class="cod">código: ${_cadastroQR.codigo}</div>
-      <script>window.onload=function(){setTimeout(function(){window.print()},300)}<\/script>
+      <div class="card">
+        <div class="bunting">${flags}</div>
+        <div class="inner">
+          <img class="logo" src="${logo}" alt="Cordel 2026" onerror="this.style.display='none'" />
+          <div class="sub">Cordel 2026 · Igreja Batista Zona Sul</div>
+          <h1>Crie sua conta! 🎉</h1>
+          <div class="lead">Aponte a câmera do celular para o QR Code</div>
+          <div class="qr-frame"><img src="${_cadastroQR.qr}" alt="QR de cadastro" /></div>
+          <div class="steps">
+            <div class="step"><span class="num">1</span> Abra a câmera</div>
+            <div class="step"><span class="num">2</span> Aponte para o código</div>
+            <div class="step"><span class="num">3</span> Toque no link</div>
+          </div>
+          <div class="where">📍 Disponível <strong>na festa</strong> e também <strong>na igreja, nos horários de culto</strong>.</div>
+          <div class="foot">✨ AI · Alegria Inteligente</div>
+          <div class="cod">código: ${_cadastroQR.codigo}</div>
+        </div>
+      </div>
+      <script>window.onload=function(){setTimeout(function(){window.print()},600)}<\/script>
     </body></html>`);
   w.document.close();
 }
