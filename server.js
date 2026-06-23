@@ -116,10 +116,13 @@ function resolverSessionSecret() {
   return crypto.randomBytes(32).toString('hex');
 }
 const SESSION_SECRET = resolverSessionSecret();
-const TOKEN_TTL_MS = 365 * 24 * 60 * 60 * 1000; // ~1 ano: sessão praticamente sem expiração
 
+// Token de sessão SEM expiração. A segurança do cadastro é garantida pelo gate de
+// QR Code (presença física), então a sessão pode durar indefinidamente — uma vez
+// logado, a pessoa fica logada. O token continua assinado (HMAC) para não poder
+// ser forjado; apenas não tem mais prazo de validade.
 function assinarToken(payload) {
-  const body = Buffer.from(JSON.stringify({ ...payload, exp: Date.now() + TOKEN_TTL_MS })).toString('base64url');
+  const body = Buffer.from(JSON.stringify({ ...payload, iat: Date.now() })).toString('base64url');
   const sig = crypto.createHmac('sha256', SESSION_SECRET).update(body).digest('base64url');
   return body + '.' + sig;
 }
@@ -131,8 +134,7 @@ function verificarToken(token) {
   const a = Buffer.from(sig), b = Buffer.from(esperado);
   if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
   let p; try { p = JSON.parse(Buffer.from(body, 'base64url').toString('utf8')); } catch { return null; }
-  if (!p.exp || Date.now() > p.exp) return null;
-  return p;
+  return p; // sem checagem de validade: a sessão não expira
 }
 function tokenDe(req) {
   const h = req.headers['authorization'] || '';
